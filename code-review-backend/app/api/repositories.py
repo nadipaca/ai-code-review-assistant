@@ -38,3 +38,10 @@ async def list_user_repos(github_token: str = Depends(get_github_token)):
     client = GitHubClient(github_token)
     repos = await client.list_repos()
     return {"repos": repos}
+
+# List files/folders at path (default 892 root)
+@router.get("/{owner}/{repo}/contents")
+async def list_contents(owner: str, repo: str, path: str = "", github_token: str = Depends(get_github_token)):
+    client = GitHubClient(github_token)
+    files = await client.get_repo_contents(owner, repo, path)
+    return files
