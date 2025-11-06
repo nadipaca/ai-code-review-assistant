@@ -11,7 +11,7 @@ def create_jwt(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
-        "exp": int(expire.timestamp()),  # **MUST be int timestamp!**
+        "exp": int(expire.timestamp()),
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     return token
