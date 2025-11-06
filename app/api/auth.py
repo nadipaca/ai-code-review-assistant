@@ -8,6 +8,9 @@ from app.core.jwt_auth import create_jwt
 
 router = APIRouter(prefix="/api/auth/github", tags=["auth"])
 
+# Simple in-memory session store for demo (not production!)
+sessions = {}
+
 @router.get("/login")
 async def github_login():
     """
@@ -58,7 +61,10 @@ async def github_callback(request: Request):
         user = user_resp.json()
 
     # Choose a user identifier to encode in the JWT (id or login)
-    github_user_id = user.get("id") or user.get("login")
+    # Normalize to string to avoid int/str mismatches when looking up sessions
+    github_user_id = str(user.get("id") or user.get("login"))
+    # Store user's GitHub access token server-side (DO NOT put in JWT)
+    sessions[github_user_id] = {"github_token": access_token}
     jwt_token = create_jwt(github_user_id)
 
     resp = RedirectResponse("/")

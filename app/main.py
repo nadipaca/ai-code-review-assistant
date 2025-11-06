@@ -14,6 +14,7 @@ load_dotenv()  # Loads .env vars early so env vars (e.g. JWT_SECRET) are availab
 from app.api import auth
 from app.api import profile
 from app.api import protected
+from app.api import repositories
 
 app = FastAPI(title="AI Code Review API", description="Backend for code review assistant.")
 
@@ -59,3 +60,4 @@ async def rate_limiter(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(protected.router)
+app.include_router(repositories.router)
