@@ -3,6 +3,8 @@ from fastapi.responses import RedirectResponse
 import os
 import httpx
 from fastapi import Request, HTTPException
+from fastapi import Response
+from app.core.jwt_auth import create_jwt
 
 router = APIRouter(prefix="/api/auth/github", tags=["auth"])
 
@@ -44,5 +46,31 @@ async def github_callback(request: Request):
     access_token = token_data.get("access_token")
     if not access_token:
         raise HTTPException(status_code=400, detail="No access token obtained.")
-    # For now, just return the token (in a real app you'd store this!)
-    return {"access_token": access_token}
+    
+    # Use the access token to get the GitHub user info, create a JWT for your app,
+    # set it as an HttpOnly cookie and redirect the user to the app root.
+    async with httpx.AsyncClient() as client:
+        user_resp = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {access_token}", "Accept": "application/json"},
+        )
+        user_resp.raise_for_status()
+        user = user_resp.json()
+
+    # Choose a user identifier to encode in the JWT (id or login)
+    github_user_id = user.get("id") or user.get("login")
+    jwt_token = create_jwt(github_user_id)
+
+    resp = RedirectResponse("/")
+    # In production set secure=True and consider SameSite and domain restrictions
+    secure_cookie = os.environ.get("ENV") == "production"
+    resp.set_cookie(
+        key="access_token",
+        value=jwt_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=14 * 24 * 3600,
+        path="/",
+    )
+    return resp

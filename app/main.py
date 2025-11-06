@@ -7,9 +7,10 @@ import os
 from fastapi import Request
 from fastapi.responses import JSONResponse
 import logging
-import time 
+import time
 
 from app.api import auth
+from app.api import profile
 
 load_dotenv()  # Loads .env vars
 
@@ -55,3 +56,4 @@ async def rate_limiter(request: Request, call_next):
 
 # Later, you'll include routers for auth, repos, reviews
 app.include_router(auth.router)
+app.include_router(profile.router)
