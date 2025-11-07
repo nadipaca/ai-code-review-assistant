@@ -1,4 +1,5 @@
 import httpx
+import base64
 from typing import List, Dict
 
 class GitHubClient:
@@ -30,3 +31,21 @@ class GitHubClient:
             resp = await client.get(url, headers=self.base_headers)
             resp.raise_for_status()
             return resp.json()
+
+    async def get_file_content(self, owner: str, repo: str, path: str) -> str:
+        """Fetch raw file content for a file in a repository.
+
+        Uses the GitHub Contents API and decodes base64-encoded files.
+        Returns the file as a UTF-8 string.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self.base_headers)
+            resp.raise_for_status()
+            data = resp.json()
+            # File responses include 'content' (base64) and 'encoding'
+            if isinstance(data, dict) and data.get("encoding") == "base64" and "content" in data:
+                raw = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+                return raw
+            # Fallback: if the API returned text directly, coerce to string
+            return str(data)

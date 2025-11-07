@@ -67,14 +67,15 @@ async def github_callback(request: Request):
     sessions[github_user_id] = {"github_token": access_token}
     jwt_token = create_jwt(github_user_id)
 
-    resp = RedirectResponse("/")
+    resp = RedirectResponse("http://localhost:5173/repos")
     # In production set secure=True and consider SameSite and domain restrictions
     secure_cookie = os.environ.get("ENV") == "production"
+    resp = RedirectResponse("http://localhost:5173/")  # Redirect to frontend root
     resp.set_cookie(
         key="access_token",
         value=jwt_token,
         httponly=True,
-        secure=secure_cookie,
+        secure=False,  # False for localhost/dev
         samesite="lax",
         max_age=14 * 24 * 3600,
         path="/",

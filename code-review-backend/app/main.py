@@ -15,6 +15,7 @@ from app.api import auth
 from app.api import profile
 from app.api import protected
 from app.api import repositories
+from app.api import reviews
 
 app = FastAPI(title="AI Code Review API", description="Backend for code review assistant.")
 
@@ -24,7 +25,7 @@ user_requests = defaultdict(list)
 # CORS - allow frontend to talk to backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # adjust for prod
+    allow_origins=["http://localhost:5173"],  # Only allow frontend origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -61,3 +62,4 @@ app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(protected.router)
 app.include_router(repositories.router)
+app.include_router(reviews.router)
