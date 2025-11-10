@@ -5,6 +5,7 @@ import httpx
 from fastapi import Request, HTTPException
 from fastapi import Response
 from app.core.jwt_auth import create_jwt
+from fastapi import Cookie
 
 router = APIRouter(prefix="/api/auth/github", tags=["auth"])
 
@@ -81,3 +82,13 @@ async def github_callback(request: Request):
         path="/",
     )
     return resp
+
+
+@router.post("/logout")
+async def github_logout(response: Response, access_token: str = Cookie(None)):
+    """Clears the access_token cookie (logout)."""
+    # If there's any server-side session mapping we could optionally remove it.
+    # We simply clear the cookie on the client by setting an expired cookie.
+    response = Response(content={"ok": True})
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}

@@ -129,14 +129,51 @@ function App() {
       }
     }
 
-    async function handlePublishToPR() {
+   async function handlePublishToPR() {
       if (!selectedRepo || !prNumber || !reviewResults) return;
       setPublishing(true);
       try {
-        await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNumber, reviewResults);
+        // Transform reviewResults -> suggestions: [{ file, comment }]
+        const suggestions = (reviewResults && Array.isArray(reviewResults.review))
+          ? reviewResults.review.map((fileObj) => {
+              if (fileObj.error) {
+                return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
+              }
+              // Build a readable markdown comment per file
+              const parts = [];
+              (fileObj.results || []).forEach((r, idx) => {
+                if (r.error) {
+                  parts.push(`**Chunk ${idx + 1} - Error:** ${r.error}`);
+                  return;
+                }
+                if (r.suggestion) {
+                  parts.push(`**Suggestion ${idx + 1}:**\n${r.suggestion}`);
+                }
+                if (r.chunk_preview) {
+                  parts.push("```" + "\n" + r.chunk_preview + "\n" + "```");
+                }
+                if (r.highlighted_lines) {
+                  parts.push(`Highlighted lines: ${r.highlighted_lines.join(", ")}`);
+                }
+              });
+              const comment = parts.join("\n\n") || "_No suggestion provided._";
+              return { file: fileObj.file, comment };
+            })
+          : [];
+
+        if (suggestions.length === 0) {
+          toast({ title: "Nothing to publish", description: "No review suggestions available.", status: "warning", duration: 3000, isClosable: true });
+          setPublishing(false);
+          return;
+        }
+
+        // Ensure PR number is numeric
+        const prNum = Number(prNumber);
+
+        await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNum, suggestions);
         toast({ title: "Published to PR", status: "success", duration: 3000, isClosable: true });
       } catch (err) {
-        toast({ title: "Publish failed", description: err.message || String(err), status: "error", duration: 4000, isClosable: true });
+        toast({ title: "Publish failed", description: err.message || JSON.stringify(err), status: "error", duration: 4000, isClosable: true });
       } finally {
         setPublishing(false);
       }
