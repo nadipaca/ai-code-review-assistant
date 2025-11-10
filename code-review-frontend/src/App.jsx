@@ -30,11 +30,8 @@ import {
   Box,
   Text,
   useToast,
-  Grid,
-  GridItem,
   Heading,
   VStack,
-  Center,
 } from "@chakra-ui/react";
 import { getRepos, startReview, publishReviewToPR } from "./services/api";
 import { LoginScreen } from "./LoginScreen";
@@ -53,7 +50,9 @@ function App() {
     const [reviewLoading, setReviewLoading] = useState(false);
     const [prNumber, setPrNumber] = useState("");
     const [publishing, setPublishing] = useState(false);
-    const [loadingRepos, setLoadingRepos] = useState(false);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  // view controls which single panel is visible: 'repos' | 'review'
+  const [view, setView] = useState('repos');
     const toast = useToast();
 
     async function handleLogout() {
@@ -68,6 +67,7 @@ function App() {
       setSelectedRepo(null);
       setSelectedFiles([]);
       setReviewResults(null);
+      setView('repos');
     }
 
     useEffect(() => {
@@ -96,13 +96,13 @@ function App() {
       })();
     }, []);
 
-    // loadRepos moved inline into useEffect to avoid stale-deps warnings
-
     function handleRepoSelect(repo) {
       setSelectedRepo(repo);
       setBreadcrumbs([]);
       setSelectedFiles([]);
       setReviewResults(null);
+      // navigate to review panel
+      setView('review');
     }
 
     function handleSelectFile(file) {
@@ -172,6 +172,11 @@ function App() {
 
         await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNum, suggestions);
         toast({ title: "Published to PR", status: "success", duration: 3000, isClosable: true });
+       // After successful publish, return to repo list and clear selection
+       setView('repos');
+       setSelectedRepo(null);
+       setSelectedFiles([]);
+       setReviewResults(null);
       } catch (err) {
         toast({ title: "Publish failed", description: err.message || JSON.stringify(err), status: "error", duration: 4000, isClosable: true });
       } finally {
@@ -195,58 +200,47 @@ function App() {
       <ChakraProvider>
         <ErrorBoundary>
         <Box minH="100vh" bgGradient="linear(to-br, teal.900 0%, gray.900 100%)" color="gray.100">
-          <Header onLogout={handleLogout} />
+          <Header onLogout={() => { handleLogout(); }} />
 
-          <Box py={8} w="100%">
-            <Box w="100%" maxW="7xl" mx="auto" px={6}>
-              <Grid templateColumns={{ base: "1fr", md: "3fr 1fr" }} gap={8} alignItems="start">
-                <GridItem>
-                  <VStack align="stretch" spacing={4}>
-                    {!selectedRepo && (
-                      <Box
-                        bg="gray.800"
-                        color="gray.200"
-                        p={4}
-                        borderRadius="md"
-                        boxShadow="sm"
-                        textAlign="center"
-                      >
-                        <Heading size="sm" color="teal.300">Select a repository to start code review.</Heading>
-                      </Box>
-                    )}
+          <Box py={6} w="100%">
+            <Box w="100%" maxW="1100px" mx="auto" px={{ base: 4, md: 6 }}>
+              {view === 'repos' && (
+                <VStack align="stretch" spacing={4}>
+                  <Box
+                    bg="gray.800"
+                    color="gray.200"
+                    p={4}
+                    borderRadius="md"
+                    boxShadow="sm"
+                    textAlign="center"
+                  >
+                    <Heading size="sm" color="teal.300">Select a repository to start code review.</Heading>
+                  </Box>
 
-                    <Box>
-                      <RepoList repos={repos} loading={loadingRepos} onOpenRepo={handleRepoSelect} selectedRepo={selectedRepo} />
-                    </Box>
-                  </VStack>
-                </GridItem>
+                  <RepoList repos={repos} loading={loadingRepos} onOpenRepo={handleRepoSelect} selectedRepo={selectedRepo} />
+                </VStack>
+              )}
 
-                <GridItem>
-                  {!selectedRepo ? (
-                    <Box minH="400px" bg="white" boxShadow="sm" display="flex" alignItems="center" justifyContent="center" borderRadius="md">
-                      <Text fontSize="lg" color="gray.400" textAlign="center">Open a repository from the left to browse files and run reviews.</Text>
-                    </Box>
-                  ) : (
-                    <ReviewPanel
-                      selectedRepo={selectedRepo}
-                      setSelectedRepo={setSelectedRepo}
-                      breadcrumbs={breadcrumbs}
-                      setBreadcrumbs={setBreadcrumbs}
-                      handleSelectFile={handleSelectFile}
-                      selectedFiles={selectedFiles}
-                      handleReview={handleReview}
-                      reviewLoading={reviewLoading}
-                      reviewResults={reviewResults}
-                      prNumber={prNumber}
-                      setPrNumber={setPrNumber}
-                      publishing={publishing}
-                      handlePublishToPR={handlePublishToPR}
-                      sanitizeFilename={sanitizeFilename}
-                      toast={toast}
-                    />
-                  )}
-                </GridItem>
-              </Grid>
+              {view === 'review' && (
+                <ReviewPanel
+                  selectedRepo={selectedRepo}
+                  setSelectedRepo={(r) => { setSelectedRepo(r); if (!r) setView('repos'); }}
+                  onBack={() => { setSelectedRepo(null); setView('repos'); }}
+                  breadcrumbs={breadcrumbs}
+                  setBreadcrumbs={setBreadcrumbs}
+                  handleSelectFile={handleSelectFile}
+                  selectedFiles={selectedFiles}
+                  handleReview={handleReview}
+                  reviewLoading={reviewLoading}
+                  reviewResults={reviewResults}
+                  prNumber={prNumber}
+                  setPrNumber={setPrNumber}
+                  publishing={publishing}
+                  handlePublishToPR={handlePublishToPR}
+                  sanitizeFilename={sanitizeFilename}
+                  toast={toast}
+                />
+              )}
             </Box>
           </Box>
         </Box>

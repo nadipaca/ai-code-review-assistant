@@ -12,19 +12,23 @@ import {
   Input,
   Box,
   Center,
+  IconButton,
 } from '@chakra-ui/react';
+import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
-export function RepoList({ repos = [], loading = false, onOpenRepo, selectedRepo }) {
+const RepoList = ({ repos = [], loading = false, onOpenRepo, selectedRepo }) => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 10;
-
-  useEffect(() => setPage(1), [search]);
-  // normalize repos prop (backend sometimes returns { repos: [...] })
-  const reposArr = Array.isArray(repos) ? repos : (repos && Array.isArray(repos.repos) ? repos.repos : []);
-  // debug: if repos is unexpected shape, log it
-  if (!Array.isArray(repos)) console.debug('RepoList received repos:', repos);
-
+  const PAGE_SIZE = 5;
+  
+  // Reset page to 1 when search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+  
+  // Ensure repos is always an array
+  const reposArr = Array.isArray(repos) ? repos : [];
+  
   const filtered = reposArr.filter((r) => (r.name || '').toLowerCase().includes(search.toLowerCase()));
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
@@ -70,32 +74,33 @@ export function RepoList({ repos = [], loading = false, onOpenRepo, selectedRepo
                       p={3}
                       borderRadius="md"
                       _hover={{ bg: 'teal.50' }}
-                      transition="background 0.2s"
+                      width="100%"
                     >
-                      <Box>
-                        <Text fontWeight="bold">{repo.name}</Text>
-                        <Text fontSize="sm" color="gray.500">{repo.owner?.login}</Text>
+                      <Box overflow="hidden" mr={4}>
+                        <Text fontWeight="bold" isTruncated>{repo.name}</Text>
+                        <Text fontSize="sm" color="gray.500" isTruncated>{repo.owner?.login}</Text>
                       </Box>
-                      <Button
-                        colorScheme="teal"
-                        variant="solid"
-                        size="sm"
-                        onClick={() => onOpenRepo(repo)}
-                        isDisabled={selectedRepo && selectedRepo.id === repo.id}
-                      >
-                        Open
-                      </Button>
+                      <Box>
+                        <Button
+                          colorScheme="teal"
+                          variant="solid"
+                          size="sm"
+                          onClick={() => onOpenRepo(repo)}
+                          isDisabled={selectedRepo && selectedRepo.id === repo.id}
+                        >
+                          Open
+                        </Button>
+                      </Box>
                     </Flex>
                   ))}
                 </Stack>
               )}
 
-              {/* Pagination */}
               {filtered.length > PAGE_SIZE && (
-                <Flex mt={6} align="center" justify="space-between">
-                  <Button size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} variant="outline" colorScheme="teal" isDisabled={page === 1}>Prev</Button>
+                <Flex mt={4} align="center" justify="space-between">
+                  <IconButton aria-label="Prev page" icon={<ChevronLeftIcon />} size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} isDisabled={page === 1} />
                   <Text fontSize="sm" color="gray.300">Page {page} / {totalPages} ({filtered.length} repos)</Text>
-                  <Button size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} variant="outline" colorScheme="teal" isDisabled={page === totalPages}>Next</Button>
+                  <IconButton aria-label="Next page" icon={<ChevronRightIcon />} size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} isDisabled={page === totalPages} />
                 </Flex>
               )}
             </>
@@ -105,5 +110,4 @@ export function RepoList({ repos = [], loading = false, onOpenRepo, selectedRepo
     </Box>
   );
 }
-
 export default RepoList;

@@ -12,10 +12,8 @@ import {
   Spinner,
   Text,
   Box,
-  Stack,
   HStack,
   Input,
-  Badge,
 } from '@chakra-ui/react';
 import { ArrowBackIcon } from '@chakra-ui/icons';
 import { FileBrowser } from '../FileBrowser';
@@ -36,38 +34,46 @@ export function ReviewPanel({
   handlePublishToPR,
   sanitizeFilename,
   toast,
+  onBack,
 }) {
   if (!selectedRepo) return null;
 
   return (
     <Card boxShadow="lg" mb={8}>
       <CardHeader>
-        <Flex align="center" justify="space-between">
-          <Heading size="md" color="teal.700">Files in {selectedRepo.name}</Heading>
-          <IconButton
-            icon={<ArrowBackIcon />}
-            aria-label="Back to Repos"
-            size="sm"
-            variant="ghost"
-            colorScheme="teal"
-            onClick={() => setSelectedRepo(null)}
-          />
-        </Flex>
+          <Flex align="center" justify="space-between">
+            <Heading size="md" color="teal.700">Files in {selectedRepo.name}</Heading>
+            <Flex align="center" gap={2}>
+              <Button size="sm" variant="ghost" colorScheme="teal" onClick={() => { if (onBack) onBack(); else setSelectedRepo(null); }}>Back to repos</Button>
+              <IconButton
+                icon={<ArrowBackIcon />}
+                aria-label="Back to Repos"
+                size="sm"
+                variant="ghost"
+                colorScheme="teal"
+                onClick={() => { if (onBack) onBack(); else setSelectedRepo(null); }}
+              />
+            </Flex>
+          </Flex>
       </CardHeader>
       <Divider />
       <CardBody>
-        <FileBrowser
-          owner={selectedRepo.owner.login}
-          repo={selectedRepo.name}
-          path={breadcrumbs.join('/')}
-          onSelectFile={handleSelectFile}
-          selectedFiles={selectedFiles}
-          breadcrumbs={breadcrumbs}
-          setBreadcrumbs={setBreadcrumbs}
-        />
+        {/* Fixed-height browser container prevents layout jump */}
+        <Box minH="350px">
+          <FileBrowser
+            owner={selectedRepo.owner.login}
+            repo={selectedRepo.name}
+            path={breadcrumbs.join('/')}
+            onSelectFile={handleSelectFile}
+            selectedFiles={selectedFiles}
+            breadcrumbs={breadcrumbs}
+            setBreadcrumbs={setBreadcrumbs}
+          />
+        </Box>
+
         <Flex mt={6} gap={4} align="center" justify="flex-end">
           <Button colorScheme="green" isDisabled={selectedFiles.length === 0} onClick={handleReview}>Review Selected Files</Button>
-          <Button variant="outline" colorScheme="gray" onClick={() => { /* clear selection handled in parent */ }}>Clear Selection</Button>
+          <Button variant="outline" colorScheme="gray" onClick={() => { /* clear handled in parent */ }}>Clear Selection</Button>
         </Flex>
 
         {reviewLoading && (
@@ -121,7 +127,6 @@ export function ReviewPanel({
               </Box>
             ))}
 
-            {/* Publish to PR Section */}
             <Box mt={6} p={4} bg="gray.700" borderRadius="md">
               <Heading size="sm" mb={3} color="teal.200">Publish to GitHub PR</Heading>
               <HStack spacing={2}>

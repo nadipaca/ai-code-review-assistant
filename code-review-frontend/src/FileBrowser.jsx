@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  ChakraProvider, Box, Heading, List, ListItem, Button, Text, Breadcrumb, BreadcrumbItem, BreadcrumbLink, Checkbox, Icon
+  Box, List, ListItem, Button, Text, Breadcrumb, BreadcrumbItem, BreadcrumbLink, Checkbox, Spinner, Flex
 } from "@chakra-ui/react";
-import { Spinner } from "@chakra-ui/react";
 import { ChevronRightIcon } from "@chakra-ui/icons";
 import { FaFolder } from "react-icons/fa";
 import { getFiles } from "./services/api";
@@ -18,8 +17,6 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
       .finally(() => setLoading(false));
   }, [owner, repo, path]);
 
-  if (loading) return <Spinner />;
-
   const handleFolderClick = (folder) => {
     setBreadcrumbs([...breadcrumbs, folder.name]);
   };
@@ -28,52 +25,70 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
     setBreadcrumbs(breadcrumbs.slice(0, -1));
   };
 
-  const currentPath = breadcrumbs.join("/");
-
   return (
     <Box mt={4}>
-      <Breadcrumb spacing="8px" separator={<ChevronRightIcon color="gray.500" />}>
+      <Breadcrumb spacing="8px" separator={<ChevronRightIcon color="gray.500" />} mb={3}>
         <BreadcrumbItem>
-          <BreadcrumbLink onClick={() => setBreadcrumbs([])}>root</BreadcrumbLink>
+          <BreadcrumbLink href="#" onClick={(e) => { e.preventDefault(); setBreadcrumbs([]); }}>root</BreadcrumbLink>
         </BreadcrumbItem>
         {breadcrumbs.map((bc, idx) => (
           <BreadcrumbItem key={bc}>
-            <BreadcrumbLink onClick={() => setBreadcrumbs(breadcrumbs.slice(0, idx + 1))}>{bc}</BreadcrumbLink>
+            <BreadcrumbLink
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                setBreadcrumbs(breadcrumbs.slice(0, idx + 1));
+              }}
+            >
+              {bc}
+            </BreadcrumbLink>
           </BreadcrumbItem>
         ))}
       </Breadcrumb>
-      <List spacing={2} mt={2}>
-        {files
-          .filter((f) => f.type === "dir")
-          .map((folder) => (
-            <ListItem key={folder.path}>
-              <Button
-                size="sm"
-                leftIcon={<FaFolder/>}
-                onClick={() => handleFolderClick(folder)}
-                colorScheme="blue"
-              >
-                {folder.name}
-              </Button>
-            </ListItem>
-          ))}
-        {files
-          .filter((f) => f.type === "file")
-          .map((file) => (
-            <ListItem key={file.path}>
-              <Checkbox
-                isChecked={selectedFiles.some((f) => f.path === file.path)}
-                onChange={() => onSelectFile(file)}
-                colorScheme={file.name.endsWith(".js") || file.name.endsWith(".java") ? "green" : "gray"}
-                isDisabled={!(file.name.endsWith(".js") || file.name.endsWith(".java"))}
-              >
-                {file.name}
-              </Checkbox>
-            </ListItem>
-          ))}
-      </List>
+
+      {/* Fixed-height container so layout does not jump */}
+      <Box minH="300px" position="relative">
+        {loading ? (
+          <Flex justify="center" align="center" minH="300px">
+            <Spinner size="lg" color="teal.500" />
+          </Flex>
+        ) : (
+          <List spacing={2}>
+            {files
+              .filter((f) => f.type === "dir")
+              .map((folder) => (
+                <ListItem key={folder.path}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    leftIcon={<FaFolder/>}
+                    onClick={() => handleFolderClick(folder)}
+                    colorScheme="blue"
+                  >
+                    {folder.name}
+                  </Button>
+                </ListItem>
+              ))}
+            {files
+              .filter((f) => f.type === "file")
+              .map((file) => (
+                <ListItem key={file.path}>
+                  <Checkbox
+                    isChecked={selectedFiles.some((f) => f.path === file.path)}
+                    onChange={() => onSelectFile(file)}
+                    colorScheme={file.name.endsWith(".js") || file.name.endsWith(".java") ? "green" : "gray"}
+                    isDisabled={!(file.name.endsWith(".js") || file.name.endsWith(".java"))}
+                  >
+                    {file.name}
+                  </Checkbox>
+                </ListItem>
+              ))}
+          </List>
+        )}
+      </Box>
+
       {breadcrumbs.length > 0 && (
-        <Button onClick={handleBackClick} mt={3} size="xs" variant="outline" colorScheme="gray">
+        <Button onClick={handleBackClick} mt={3} size="xs" variant="outline" colorScheme="gray" type="button">
           Go Up
         </Button>
       )}
