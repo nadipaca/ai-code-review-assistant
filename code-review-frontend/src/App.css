@@ -1,8 +1,9 @@
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .logo {
@@ -11,6 +12,13 @@
   will-change: filter;
   transition: filter 300ms;
 }
+
+@media (min-width: 1024px) {
+  #root {
+    padding: 3rem 2rem;
+  }
+}
+
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
