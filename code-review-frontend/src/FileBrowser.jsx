@@ -71,18 +71,23 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
               ))}
             {files
               .filter((f) => f.type === "file")
-              .map((file) => (
-                <ListItem key={file.path}>
-                  <Checkbox
-                    isChecked={selectedFiles.some((f) => f.path === file.path)}
-                    onChange={() => onSelectFile(file)}
-                    colorScheme={file.name.endsWith(".js") || file.name.endsWith(".java") ? "green" : "gray"}
-                    isDisabled={!(file.name.endsWith(".js") || file.name.endsWith(".java"))}
-                  >
-                    {file.name}
-                  </Checkbox>
-                </ListItem>
-              ))}
+              .map((file) => {
+                const codeExtensions = [".js", ".java", ".py"];
+                const isCodeFile = codeExtensions.some(ext => file.name.endsWith(ext));
+                
+                return (
+                  <ListItem key={file.path}>
+                    <Checkbox
+                      isChecked={selectedFiles.some((f) => f.path === file.path)}
+                      onChange={() => onSelectFile(file)}
+                      colorScheme={isCodeFile ? "green" : "gray"}
+                      isDisabled={!isCodeFile}
+                    >
+                      {file.name}
+                    </Checkbox>
+                  </ListItem>
+                );
+              })}
           </List>
         )}
       </Box>
