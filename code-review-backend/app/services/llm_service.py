@@ -8,48 +8,39 @@ client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 
 async def review_code_chunk(chunk: str, language: str = "java", start_line: int = 1) -> dict:
-    """Call LLM API to review a code chunk, return suggestions with line numbers.
-
-    Uses the new openai-python v1+ API (AsyncOpenAI).
-    
-    Args:
-        chunk: The code chunk to review
-        language: Programming language (java, js, python, etc.)
-        start_line: The starting line number of this chunk in the original file
-    
-    Returns:
-        dict with 'comment' and optionally 'lines' (list of line numbers)
-    """
+    """Call LLM API to review a code chunk and return actionable suggestions with code."""
     prompt = (
-        f"You are an expert {language} code reviewer. Carefully study the following code block "
-        f"(starting at line {start_line}) and return constructive improvement suggestions.\n\n"
-        f"IMPORTANT: When you identify issues, specify the EXACT line number(s) where the issue occurs.\n"
-        f"Format: 'Line X: issue description' or 'Lines X-Y: issue description'\n\n"
-        f"Code:\n{chunk}\n\n"
-        f"Provide specific, actionable feedback with line numbers:"
+        f"You are an expert {language} code reviewer. Study this code (starting at line {start_line}) "
+        f"and provide improvement suggestions.\n\n"
+        f"For each issue:\n"
+        f"1. Explain the problem clearly\n"
+        f"2. Provide the EXACT line numbers\n"
+        f"3. Show the improved code in a code block\n\n"
+        f"Format your response like this:\n"
+        f"**Issue:** [description]\n"
+        f"**Lines:** X-Y\n"
+        f"**Fix:**\n"
+        f"```{language}\n"
+        f"[corrected code]\n"
+        f"```\n\n"
+        f"Code to review:\n{chunk}"
     )
 
-    # Call the chat completions endpoint
     resp = await client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=500,
+        max_tokens=800,
         temperature=0.2,
     )
 
-    try:
-        content = resp.choices[0].message.content
-    except Exception:
-        content = getattr(resp.choices[0].message, 'content', str(resp))
-    
-    # Extract line numbers from the response
+    content = resp.choices[0].message.content
     lines = extract_line_numbers(content, start_line)
     
     return {
         "comment": content,
-        "lines": lines if lines else None
+        "lines": lines if lines else None,
+        "has_code_block": "```" in content
     }
-
 
 def extract_line_numbers(text: str, offset: int = 0) -> list:
     """
@@ -89,3 +80,59 @@ def extract_line_numbers(text: str, offset: int = 0) -> list:
     result = sorted(list(lines))
     logging.debug(f"Extracted line numbers: {result} from text: {text[:100]}...")
     return result
+
+async def review_code_chunk_with_context(
+    chunk: str,
+    language: str,
+    start_line: int,
+    file_path: str,
+    project_context: str,
+    full_file_content: str
+) -> dict:
+    """
+    Review code chunk with full project context to avoid suggesting deletions.
+    """
+    prompt = (
+        f"You are an expert {language} code reviewer analyzing **{file_path}** in a multi-file project.\n\n"
+        f"{project_context}\n\n"
+        f"**IMPORTANT RULES:**\n"
+        f"1. This is part of a larger project - DO NOT suggest removing code unless it's genuinely unused\n"
+        f"2. Consider dependencies from other files listed above\n"
+        f"3. Look for actual bugs, security issues, or performance problems\n"
+        f"4. Suggest improvements ONLY if they add value\n"
+        f"5. If the code is fine, respond with: 'No issues found - code looks good!'\n\n"
+        f"**Full File Context (for reference):**\n"
+        f"```{language}\n"
+        f"{full_file_content[:500]}...\n"  # Show beginning of file
+        f"```\n\n"
+        f"**Code Chunk to Review (Lines {start_line}+):**\n"
+        f"```{language}\n"
+        f"{chunk}\n"
+        f"```\n\n"
+        f"Provide specific, actionable feedback with line numbers and corrected code ONLY if there are real issues."
+    )
+
+    resp = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1000,
+        temperature=0.2,
+    )
+
+    content = resp.choices[0].message.content
+    
+    # ✅ Filter out "no issues" responses
+    if "no issues" in content.lower() or "looks good" in content.lower():
+        return {
+            "comment": "✅ No issues found - code quality is good!",
+            "lines": None,
+            "has_code_block": False
+        }
+    
+    lines = extract_line_numbers(content, start_line)
+    
+    return {
+        "comment": content,
+        "lines": lines if lines else None,
+        "has_code_block": "```" in content
+    }
