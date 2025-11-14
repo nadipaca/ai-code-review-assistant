@@ -129,61 +129,149 @@ function App() {
       }
     }
 
-   async function handlePublishToPR() {
-      if (!selectedRepo || !prNumber || !reviewResults) return;
-      setPublishing(true);
-      try {
-        // Transform reviewResults -> suggestions: [{ file, comment }]
-        const suggestions = (reviewResults && Array.isArray(reviewResults.review))
-          ? reviewResults.review.map((fileObj) => {
-              if (fileObj.error) {
-                return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
+  
+  async function handlePublishToPR() {
+    if (!selectedRepo || !prNumber || !reviewResults) return;
+    setPublishing(true);
+    try {
+      // Transform reviewResults -> suggestions with line numbers
+      const suggestions = (reviewResults && Array.isArray(reviewResults.review))
+        ? reviewResults.review.map((fileObj) => {
+            if (fileObj.error) {
+              return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
+            }
+            
+            // Aggregate all highlighted lines from all chunks
+            const allLines = [];
+            const parts = [];
+            
+            (fileObj.results || []).forEach((r, idx) => {
+              if (r.error) {
+                parts.push(`**Chunk ${idx + 1} - Error:** ${r.error}`);
+                return;
               }
-              // Build a readable markdown comment per file
-              const parts = [];
-              (fileObj.results || []).forEach((r, idx) => {
-                if (r.error) {
-                  parts.push(`**Chunk ${idx + 1} - Error:** ${r.error}`);
-                  return;
-                }
-                if (r.suggestion) {
-                  parts.push(`**Suggestion ${idx + 1}:**\n${r.suggestion}`);
-                }
-                if (r.chunk_preview) {
-                  parts.push("```" + "\n" + r.chunk_preview + "\n" + "```");
-                }
-                if (r.highlighted_lines) {
-                  parts.push(`Highlighted lines: ${r.highlighted_lines.join(", ")}`);
-                }
-              });
-              const comment = parts.join("\n\n") || "_No suggestion provided._";
-              return { file: fileObj.file, comment };
-            })
-          : [];
-
-        if (suggestions.length === 0) {
-          toast({ title: "Nothing to publish", description: "No review suggestions available.", status: "warning", duration: 3000, isClosable: true });
-          setPublishing(false);
-          return;
-        }
-
-        // Ensure PR number is numeric
-        const prNum = Number(prNumber);
-
-        await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNum, suggestions);
-        toast({ title: "Published to PR", status: "success", duration: 3000, isClosable: true });
-       // After successful publish, return to repo list and clear selection
-       setView('repos');
-       setSelectedRepo(null);
-       setSelectedFiles([]);
-       setReviewResults(null);
-      } catch (err) {
-        toast({ title: "Publish failed", description: err.message || JSON.stringify(err), status: "error", duration: 4000, isClosable: true });
-      } finally {
+              if (r.suggestion) {
+                parts.push(`**Suggestion ${idx + 1}:**\n${r.suggestion}`);
+              }
+              if (r.chunk_preview) {
+                parts.push("```" + "\n" + r.chunk_preview + "\n" + "```");
+              }
+              // Collect line numbers for inline comments
+              if (r.highlighted_lines && Array.isArray(r.highlighted_lines)) {
+                allLines.push(...r.highlighted_lines);
+              }
+            });
+            
+            const comment = parts.join("\n\n") || "_No suggestion provided._";
+            
+            // Return suggestion with line info for inline commenting
+            return {
+              file: fileObj.file,
+              comment,
+              highlighted_lines: allLines.length > 0 ? allLines : null
+            };
+          })
+        : [];
+  
+      if (suggestions.length === 0) {
+        toast({ 
+          title: "Nothing to publish", 
+          description: "No review suggestions available.", 
+          status: "warning", 
+          duration: 3000, 
+          isClosable: true 
+        });
         setPublishing(false);
+        return;
       }
+  
+      const prNum = Number(prNumber);
+  
+      await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNum, suggestions);
+      toast({ 
+        title: "Published to PR", 
+        description: "Review posted with inline comments where possible",
+        status: "success", 
+        duration: 3000, 
+        isClosable: true 
+      });
+      
+      setView('repos');
+      setSelectedRepo(null);
+      setSelectedFiles([]);
+      setReviewResults(null);
+    } catch (err) {
+      toast({ 
+        title: "Publish failed", 
+        description: err.message || JSON.stringify(err), 
+        status: "error", 
+        duration: 4000, 
+        isClosable: true 
+      });
+    } finally {
+      setPublishing(false);
     }
-
+  }
+  
+  async function handleCreateReviewPR() {
+    if (!selectedRepo || !reviewResults) return;
+    setPublishing(true);
+    
+    try {
+      const response = await fetch('/api/reviews/create-pr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          owner: selectedRepo.owner.login,
+          repo: selectedRepo.name,
+          // base_branch is optional - backend will auto-detect default branch
+          review_results: reviewResults
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to create PR');
+      }
+      
+      const data = await response.json();
+      toast({
+        title: 'PR Created Successfully! 🎉',
+        description: (
+          <>
+            <Text>Draft PR #{data.pr.number} created</Text>
+            <Text fontSize="xs" mt={1}>
+              <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{color: 'teal'}}>
+                View on GitHub →
+              </a>
+            </Text>
+          </>
+        ),
+        status: 'success',
+        duration: 8000,
+        isClosable: true
+      });
+      
+      // Reset state
+      setView('repos');
+      setSelectedRepo(null);
+      setSelectedFiles([]);
+      setReviewResults(null);
+    } catch (err) {
+      console.error('Create PR error:', err);
+      toast({
+        title: 'Failed to create PR',
+        description: err.message || 'An unknown error occurred',
+        status: 'error',
+        duration: 6000,
+        isClosable: true
+      });
+    } finally {
+      setPublishing(false);
+    }
+  }
+  
     function sanitizeFilename(name) {
       return name.replace(/[^a-z0-9._-]/gi, "_");
     }
@@ -237,6 +325,7 @@ function App() {
                   setPrNumber={setPrNumber}
                   publishing={publishing}
                   handlePublishToPR={handlePublishToPR}
+                  handleCreateReviewPR={handleCreateReviewPR}
                   sanitizeFilename={sanitizeFilename}
                   toast={toast}
                 />
