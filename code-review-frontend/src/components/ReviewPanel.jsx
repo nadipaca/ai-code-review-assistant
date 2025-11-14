@@ -32,6 +32,7 @@ export function ReviewPanel({
   setPrNumber,
   publishing,
   handlePublishToPR,
+  handleCreateReviewPR,
   sanitizeFilename,
   toast,
   onBack,
@@ -129,10 +130,18 @@ export function ReviewPanel({
 
             <Box mt={6} p={4} bg="gray.700" borderRadius="md">
               <Heading size="sm" mb={3} color="teal.200">Publish to GitHub PR</Heading>
-              <HStack spacing={2}>
+              <HStack spacing={2} mb={4}>
                 <Input placeholder="Enter PR number (e.g., 42)" type="number" value={prNumber} onChange={(e) => setPrNumber(e.target.value)} maxW="150px" bg="gray.600" color="white" />
                 <Button colorScheme="green" onClick={handlePublishToPR} isLoading={publishing} isDisabled={!prNumber}>📤 Publish to PR</Button>
               </HStack>
+              {handleCreateReviewPR && (
+                <Box mt={3}>
+                  <Text fontSize="sm" color="gray.400" mb={2}>Or create a new PR with review suggestions:</Text>
+                  <Button colorScheme="purple" onClick={handleCreateReviewPR} isLoading={publishing} size="sm">
+                    📝 Create Review PR
+                  </Button>
+                </Box>
+              )}
             </Box>
           </Box>
         )}
