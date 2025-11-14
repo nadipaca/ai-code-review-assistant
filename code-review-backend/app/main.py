@@ -11,11 +11,18 @@ import time
 
 load_dotenv()  # Loads .env vars early so env vars (e.g. JWT_SECRET) are available to imported modules
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 from app.api import auth
 from app.api import profile
 from app.api import protected
 from app.api import repositories
 from app.api import reviews
+# Remove this line: from app.api import create_pr
 
 app = FastAPI(title="AI Code Review API", description="Backend for code review assistant.")
 
@@ -57,7 +64,7 @@ async def rate_limiter(request: Request, call_next):
     user_requests[user_ip].append(now)
     return await call_next(request)
 
-# Later, you'll include routers for auth, repos, reviews
+# Include routers
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(protected.router)

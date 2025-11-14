@@ -14,13 +14,11 @@ sessions = {}
 
 @router.get("/login")
 async def github_login():
-    """
-    Step 1: Redirects user to GitHub OAuth consent screen.
-    """
     client_id = os.environ["GITHUB_CLIENT_ID"]
     redirect_uri = "http://localhost:8000/api/auth/github/callback"
+    # Add 'contents:write' scope for creating branches
     github_oauth_url = (
-        f"https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&scope=read:user repo"
+        f"https://github.com/login/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&scope=read:user repo contents:write"
     )
     return RedirectResponse(github_oauth_url)
 
