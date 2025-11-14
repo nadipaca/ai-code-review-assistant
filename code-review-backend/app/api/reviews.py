@@ -9,10 +9,8 @@ from app.services.github_client import GitHubClient
 from app.services.rag_service import chunk_java_file, chunk_js_file
 from app.services.llm_service import review_code_chunk
 from app.api.auth import sessions
-from pydantic import BaseModel
-from typing import List
 from app.services.pr_publisher import PRPublisher
-import httpx
+from app.services.pr_creator import PRCreator
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -25,6 +23,40 @@ class FileRef(BaseModel):
 
 class ReviewRequest(BaseModel):
     files: List[FileRef]
+
+
+class PublishSuggestion(BaseModel):
+    file: str
+    comment: str
+    line: Optional[int] = None
+    highlighted_lines: Optional[List[int]] = None
+
+
+class PublishRequest(BaseModel):
+    owner: str
+    repo: str
+    pull_number: int
+    suggestions: List[PublishSuggestion]
+
+
+class CreatePRRequest(BaseModel):
+    owner: str
+    repo: str
+    base_branch: Optional[str] = None
+    review_results: dict
+
+
+def count_lines_before_chunk(code: str, chunk: str) -> int:
+    """
+    Count how many lines come before the given chunk in the full code.
+    This helps us provide absolute line numbers to the LLM.
+    """
+    try:
+        chunk_start = code.index(chunk)
+        lines_before = code[:chunk_start].count('\n')
+        return lines_before + 1  # Line numbers are 1-indexed
+    except ValueError:
+        return 1  # Chunk not found, default to line 1
 
 
 @router.post("/start")
@@ -58,10 +90,8 @@ async def start_review(request: ReviewRequest, access_token: Optional[str] = Coo
             except httpx.HTTPStatusError as he:
                 status = he.response.status_code
                 logging.exception("GitHub API error fetching %s: %s", f.path, he)
-                # If token invalid/expired, return 401 so frontend can re-authenticate
                 if status in (401, 403):
                     raise HTTPException(status_code=401, detail="GitHub authentication failed - please sign in again")
-                # Other HTTP errors are reported per-file
                 results.append({"file": f.path, "error": f"GitHub error fetching file (status {status})"})
                 continue
 
@@ -90,11 +120,20 @@ async def start_review(request: ReviewRequest, access_token: Optional[str] = Coo
             # Review each chunk; catch LLM errors per-chunk
             for chunk in chunks:
                 try:
-                    suggestion = await review_code_chunk(chunk, language=("java" if f.path.endswith(".java") else "js"))
+                    # Calculate starting line number for this chunk
+                    start_line = count_lines_before_chunk(code, chunk)
+                    
+                    suggestion = await review_code_chunk(
+                        chunk, 
+                        language=("java" if f.path.endswith(".java") else "js"),
+                        start_line=start_line
+                    )
+                    
                     file_results.append({
                         "chunk_preview": chunk[:200],
                         "suggestion": suggestion.get("comment") if isinstance(suggestion, dict) else str(suggestion),
-                        "highlighted_lines": suggestion.get("lines") if isinstance(suggestion, dict) else None
+                        "highlighted_lines": suggestion.get("lines") if isinstance(suggestion, dict) else None,
+                        "start_line": start_line
                     })
                 except Exception as le:
                     logging.exception("LLM error reviewing chunk for %s: %s", f.path, le)
@@ -102,7 +141,6 @@ async def start_review(request: ReviewRequest, access_token: Optional[str] = Coo
 
             results.append({"file": f.path, "results": file_results})
         except HTTPException:
-            # re-raise authentication HTTPExceptions
             raise
         except Exception as e:
             logging.exception("Unexpected error reviewing %s: %s", f.path, e)
@@ -110,19 +148,6 @@ async def start_review(request: ReviewRequest, access_token: Optional[str] = Coo
 
     logging.debug("Final results: %s", results)
     return {"review": results}
-
-
-
-class PublishSuggestion(BaseModel):
-    file: str
-    comment: str
-
-
-class PublishRequest(BaseModel):
-    owner: str
-    repo: str
-    pull_number: int
-    suggestions: List[PublishSuggestion]
 
 
 @router.post("/publish")
@@ -147,11 +172,74 @@ async def publish_review_to_pr(request: PublishRequest, access_token: Optional[s
         )
         return {"ok": True, "result": resp}
     except httpx.HTTPStatusError as he:
-        # Bubble up GitHub API errors with reasonable message
         status = he.response.status_code
         text = he.response.text
         raise HTTPException(status_code=502, detail=f"GitHub API error ({status}): {text}")
     except Exception as e:
         logging.exception("Error publishing review to PR: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
- 
+
+@router.post("/create-pr")
+async def create_pr_with_review(
+    request: CreatePRRequest,
+    access_token: Optional[str] = Cookie(None)
+):
+    """Create a new PR with review suggestions as documentation."""
+    payload = verify_jwt(access_token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Authentication error")
+    
+    user_id = payload.get("sub")
+    github_token = sessions.get(user_id, {}).get("github_token")
+    if not github_token:
+        raise HTTPException(status_code=401, detail="No GitHub token found")
+    
+    logging.info(f"Creating PR for {request.owner}/{request.repo}")
+    
+    creator = PRCreator(github_token)
+    try:
+        pr = await creator.create_review_pr(
+            owner=request.owner,
+            repo=request.repo,
+            base_branch=request.base_branch,
+            review_results=request.review_results
+        )
+        
+        logging.info(f"Successfully created PR #{pr['number']} in {request.owner}/{request.repo}")
+        
+        return {
+            "ok": True,
+            "pr": {
+                "number": pr['number'],
+                "html_url": pr['html_url'],
+                "title": pr['title'],
+                "state": pr['state'],
+                "draft": pr.get('draft', False)
+            }
+        }
+    except httpx.HTTPStatusError as he:
+        status_code = he.response.status_code
+        error_text = he.response.text
+        
+        logging.error(f"GitHub API error {status_code}: {error_text}")
+        
+        # Handle specific GitHub API errors
+        if status_code == 401:
+            raise HTTPException(status_code=401, detail="GitHub authentication failed. Please sign in again.")
+        elif status_code == 403:
+            raise HTTPException(status_code=403, detail="Insufficient permissions to create PR. Check repository access.")
+        elif status_code == 404:
+            raise HTTPException(status_code=404, detail="Repository not found or not accessible.")
+        elif status_code == 422:
+            try:
+                error_json = he.response.json()
+                error_message = error_json.get('message', 'Validation failed')
+            except:
+                error_message = 'Invalid request to GitHub API'
+            raise HTTPException(status_code=422, detail=f"GitHub validation error: {error_message}")
+        else:
+            raise HTTPException(status_code=502, detail=f"GitHub API error ({status_code}): {error_text}")
+            
+    except Exception as e:
+        logging.exception("Error creating PR: %s", e)
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
