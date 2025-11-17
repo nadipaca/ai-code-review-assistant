@@ -54,3 +54,23 @@ export async function publishReviewToPR(owner, repo, pullNumber, suggestions) {
   }
   return res.json();
 }
+
+export async function applySuggestion(owner, repo, path, suggestion, lineStart, lineEnd = null) {
+  const res = await fetch("http://localhost:8000/api/reviews/apply-suggestion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      file_ref: { owner, repo, path },
+      suggestion,
+      line_start: lineStart,
+      line_end: lineEnd
+    })
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const message = text || res.statusText || "Failed to apply suggestion";
+    throw { status: res.status, message };
+  }
+  return res.json();
+}
