@@ -117,40 +117,52 @@ function App() {
     }
 
    async function handleReview() {
-    if (!selectedRepo || selectedFiles.length === 0) return;
-    setReviewLoading(true);
-    try {
-      const payload = selectedFiles.map((f) => ({ 
-        owner: selectedRepo.owner.login, 
-        repo: selectedRepo.name, 
-        path: f.path 
-      }));
-      
-      const res = await startReview(payload);
-      setReviewResults(res);
-      
-      // Show interactive review instead of old results panel
-      setShowInteractiveReview(true);
-      
+  if (!selectedRepo || selectedFiles.length === 0) return;
+  setReviewLoading(true);
+  try {
+    const payload = selectedFiles.map((f) => ({ 
+      owner: selectedRepo.owner.login, 
+      repo: selectedRepo.name, 
+      path: f.path 
+    }));
+    
+    const res = await startReview(payload);
+    setReviewResults(res);
+    
+    // ✅ Check if any issues were found
+    if (!res.review || res.review.length === 0) {
       toast({ 
-        title: "Review complete", 
-        description: "Review suggestions one by one",
+        title: "✅ No Issues Found", 
+        description: "All selected files passed review with no medium/high severity issues!",
         status: "success", 
-        duration: 3000, 
+        duration: 5000, 
         isClosable: true 
       });
-    } catch (err) {
-      toast({ 
-        title: "Review failed", 
-        description: err.message || String(err), 
-        status: "error", 
-        duration: 4000, 
-        isClosable: true 
-      });
-    } finally {
-      setReviewLoading(false);
+      setShowInteractiveReview(false);
+      return;
     }
+    
+    setShowInteractiveReview(true);
+    
+    toast({ 
+      title: `${res.review.length} file(s) need attention`, 
+      description: "Review suggestions one by one",
+      status: "info", 
+      duration: 3000, 
+      isClosable: true 
+    });
+  } catch (err) {
+    toast({ 
+      title: "Review failed", 
+      description: err.message || String(err), 
+      status: "error", 
+      duration: 4000, 
+      isClosable: true 
+    });
+  } finally {
+    setReviewLoading(false);
   }
+}
 
   
   async function handlePublishToPR() {
@@ -295,67 +307,68 @@ function App() {
     }
   }
 
-  async function handleCreatePRWithChanges(approvedChanges, branchName) {
-    if (!selectedRepo || approvedChanges.length === 0) return;
+async function handleCreatePRWithChanges(approvedChanges, branchName) {
+  if (!selectedRepo || approvedChanges.length === 0) return;
+  
+  setPublishing(true);
+  
+  try {
+    const response = await fetch('/api/reviews/create-pr-with-changes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        owner: selectedRepo.owner.login,
+        repo: selectedRepo.name,
+        branch_name: branchName || `ai-review-${Date.now()}`,
+        approved_changes: approvedChanges
+      })
+    });
     
-    setPublishing(true);
-    
-    try {
-      const response = await fetch('/api/reviews/create-pr-with-changes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          owner: selectedRepo.owner.login,
-          repo: selectedRepo.name,
-          branch_name: branchName || `ai-review-${Date.now()}`,
-          approved_changes: approvedChanges
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Failed to create PR');
-      }
-      
-      const data = await response.json();
-      
-      toast({
-        title: 'PR Created Successfully! 🎉',
-        description: (
-          <>
-            <Text>PR #{data.pr.number} created with {data.pr.files_changed} file changes</Text>
-            <Text fontSize="xs" mt={1}>
-              <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{color: 'teal'}}>
-                View on GitHub →
-              </a>
-            </Text>
-          </>
-        ),
-        status: 'success',
-        duration: 8000,
-        isClosable: true
-      });
-      
-      // Reset state
-      setShowInteractiveReview(false);
-      setView('repos');
-      setSelectedRepo(null);
-      setSelectedFiles([]);
-      setReviewResults(null);
-    } catch (err) {
-      console.error('Create PR error:', err);
-      toast({
-        title: 'Failed to create PR',
-        description: err.message || 'An unknown error occurred',
-        status: 'error',
-        duration: 6000,
-        isClosable: true
-      });
-    } finally {
-      setPublishing(false);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || 'Failed to create PR');
     }
+    
+    const data = await response.json();
+    toast({
+      title: 'PR Created Successfully! 🎉',
+      description: (
+        <>
+          <Text>PR #{data.pr.number} created with approved changes</Text>
+          <Text fontSize="xs" mt={1}>
+            <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{color: 'teal'}}>
+              View on GitHub →
+            </a>
+          </Text>
+        </>
+      ),
+      status: 'success',
+      duration: 8000,
+      isClosable: true
+    });
+    
+    // Reset state
+    setShowInteractiveReview(false);
+    setReviewResults(null);
+    setView('repos');
+    setSelectedRepo(null);
+    setSelectedFiles([]);
+  } catch (err) {
+    console.error('Create PR error:', err);
+    toast({
+      title: 'Failed to create PR',
+      description: err.message || 'An unknown error occurred',
+      status: 'error',
+      duration: 6000,
+      isClosable: true
+    });
+  } finally {
+    setPublishing(false);
   }
+}
+
+
   
     function sanitizeFilename(name) {
       return name.replace(/[^a-z0-9._-]/gi, "_");

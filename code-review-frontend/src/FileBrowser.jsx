@@ -106,7 +106,6 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
                 </ListItem>
               ))}
             
-            {/* Files with Type Badges */}
             {files
               .filter((f) => f.type === "file")
               .map((file) => {
@@ -124,7 +123,7 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
                       >
                         <Flex align="center" gap={2}>
                           {supported && <FaFileCode color="teal" />}
-                          <Text color={supported ? "white" : "gray.500"}>
+                          <Text color={supported ? "gray.800" : "gray.500"}>
                             {file.name}
                           </Text>
                         </Flex>

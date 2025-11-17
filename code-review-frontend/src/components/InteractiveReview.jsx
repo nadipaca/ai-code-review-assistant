@@ -55,20 +55,20 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
   };
 
   const progressPercent = (rejectedSuggestions.size / allSuggestions.length) * 100;
-
+  
   return (
-    <Box w="100%" maxW="1200px" mx="auto" p={4}>
+    <Box w="100%" maxW="1200px" mx="auto" p={4} bg="white" borderRadius="md" boxShadow="lg">
       {/* Progress Header */}
       <VStack align="stretch" spacing={4} mb={6}>
-        <Heading size="md" color="gray.700">
+        <Heading size="md" color="gray.800">
           Code Review - {approvedChanges.length} approved, {rejectedSuggestions.size - approvedChanges.length} dismissed
         </Heading>
         <Progress value={progressPercent} colorScheme="green" />
-        <Text fontSize="sm" color="gray.600">
+        <Text fontSize="sm" color="gray.700">
           {visibleSuggestions.length} suggestion(s) remaining
         </Text>
       </VStack>
-
+  
       {/* Suggestions List */}
       <VStack align="stretch" spacing={4}>
         {visibleSuggestions.map((suggestion, idx) => (
@@ -81,11 +81,11 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
           />
         ))}
       </VStack>
-
+  
       {/* Final Actions */}
       {visibleSuggestions.length === 0 && (
         <Box mt={6} p={4} bg="green.50" borderRadius="md" textAlign="center">
-          <Text mb={3}>All suggestions reviewed!</Text>
+          <Text mb={3} color="gray.800">All suggestions reviewed!</Text>
           <HStack justify="center" spacing={3}>
             <Button variant="outline" onClick={onCancel}>
               Cancel
@@ -98,6 +98,7 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
       )}
     </Box>
   );
+
 }
 
 export default InteractiveReview;

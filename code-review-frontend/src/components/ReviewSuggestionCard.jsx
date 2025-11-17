@@ -24,6 +24,21 @@ export function ReviewSuggestionCard({
   const [editedSuggestion, setEditedSuggestion] = useState(suggestion.comment);
   const toast = useToast();
 
+  const getSeverityInfo = () => {
+    const comment = suggestion.comment || "";
+    if (comment.includes("**Severity:** HIGH") || comment.includes("🔴")) {
+      return { level: "HIGH", color: "red", label: "High Severity" };
+    }
+    if (comment.includes("**Severity:** MEDIUM") || comment.includes("🟠")) {
+      return { level: "MEDIUM", color: "orange", label: "Medium Severity" };
+    }
+    return { level: "INFO", color: "blue", label: "Information" };
+  };
+// ✅ Detect dangerous deletions
+  const isDeletion = suggestion.diff && suggestion.diff.includes('--- a/') && 
+                     (suggestion.diff.match(/^-/gm) || []).length > 10;
+  const severity = getSeverityInfo();
+
   // Parse diff lines from suggestion
   const renderDiff = () => {
     if (!suggestion.diff) return null;
@@ -33,8 +48,8 @@ export function ReviewSuggestionCard({
     return (
       <Box 
         bg="white" 
-        border="1px solid" 
-        borderColor="gray.200" 
+        border="2px solid" 
+        borderColor={isDeletion ? "red.500" : severity.level === "HIGH" ? "red.300" : "orange.300"}
         borderRadius="md"
         overflow="hidden"
         fontFamily="monospace"
@@ -94,8 +109,8 @@ export function ReviewSuggestionCard({
 
   return (
     <Box
-      border="1px solid"
-      borderColor="gray.200"
+      border="2px solid"
+      borderColor={severity.level === "HIGH" ? "red.300" : severity.level === "MEDIUM" ? "orange.300" : "gray.200"}
       borderRadius="md"
       overflow="hidden"
       bg="white"
@@ -103,7 +118,7 @@ export function ReviewSuggestionCard({
     >
       {/* Header with file info */}
       <Flex
-        bg="gray.50"
+        bg={severity.level === "HIGH" ? "red.50" : severity.level === "MEDIUM" ? "orange.50" : "gray.50"}
         px={4}
         py={2}
         borderBottom="1px solid"
@@ -112,6 +127,9 @@ export function ReviewSuggestionCard({
         justify="space-between"
       >
         <HStack>
+          <Badge colorScheme={severity.color}>
+            {severity.label}
+          </Badge>
           <Badge colorScheme={suggestion.applied ? 'green' : 'yellow'}>
             {suggestion.applied ? 'Ready to apply' : 'Review only'}
           </Badge>
@@ -132,7 +150,15 @@ export function ReviewSuggestionCard({
         />
       </Flex>
 
-      {/* AI Comment */}
+      {isDeletion && (
+        <Box px={4} py={2} bg="red.50" borderBottom="1px solid" borderColor="red.200">
+          <Text fontSize="xs" color="red.800" fontWeight="bold">
+            ⚠️ WARNING: This suggestion removes significant code. Review carefully before applying!
+          </Text>
+        </Box>
+      )}
+      
+      {/* AI Comment with Explanation */}
       <Box px={4} py={3} bg="blue.50" borderBottom="1px solid" borderColor="blue.100">
         {isEditing ? (
           <VStack align="stretch" spacing={2}>
@@ -141,6 +167,7 @@ export function ReviewSuggestionCard({
               onChange={(e) => setEditedSuggestion(e.target.value)}
               size="sm"
               bg="white"
+              rows={6}
             />
             <HStack justify="flex-end">
               <Button size="xs" onClick={() => setIsEditing(false)}>Cancel</Button>
@@ -157,9 +184,20 @@ export function ReviewSuggestionCard({
             </HStack>
           </VStack>
         ) : (
-          <Text fontSize="sm" color="blue.900" whiteSpace="pre-wrap">
-            {suggestion.comment}
-          </Text>
+          <Box>
+            <Text fontSize="sm" color="blue.900" whiteSpace="pre-wrap">
+              {suggestion.comment}
+            </Text>
+            {/* ✅ Show impact/explanation prominently */}
+            {suggestion.comment && suggestion.comment.includes("**Impact:**") && (
+              <Box mt={3} p={2} bg="yellow.50" borderLeft="4px solid" borderColor="yellow.400" borderRadius="md">
+                <Text fontSize="xs" fontWeight="bold" color="gray.700">💡 Why this matters:</Text>
+                <Text fontSize="xs" color="gray.600" mt={1}>
+                  {suggestion.comment.match(/\*\*Impact:\*\* (.+?)(?:\n|\*\*)/)?.[1] || "See details above"}
+                </Text>
+              </Box>
+            )}
+          </Box>
         )}
       </Box>
 
@@ -189,11 +227,11 @@ export function ReviewSuggestionCard({
         <Button
           leftIcon={<CheckIcon />}
           size="sm"
-          colorScheme="green"
+          colorScheme={severity.level === "HIGH" ? "red" : "green"}
           onClick={handleCommitSuggestion}
           isDisabled={!suggestion.applied}
         >
-          Commit suggestion
+          {severity.level === "HIGH" ? "⚠️ Apply Critical Fix" : "Commit suggestion"}
         </Button>
       </Flex>
     </Box>
