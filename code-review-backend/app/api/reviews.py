@@ -95,7 +95,6 @@ async def start_review(
     
     review_results = {"review": []}
     
-    # ✅ First pass: Fetch all file contents to build project context
     project_context = {
         "files": {},
         "structure": []
@@ -131,95 +130,56 @@ async def start_review(
                 "error": f"Failed to fetch file: {str(e)}"
             })
     
-    # ✅ Build context summary for LLM
-    context_summary = "**Project Context:**\n"
-    context_summary += f"Total files in review: {len(project_context['files'])}\n"
-    context_summary += "Files:\n"
-    for fpath in project_context["structure"]:
-        context_summary += f"- {fpath}\n"
-    context_summary += "\n"
+    # ✅ Build project context summary
+    context_summary = (
+        f"**Project Structure:**\n"
+        f"Files: {', '.join(project_context['structure'])}\n\n"
+        f"**Total files in context:** {len(project_context['files'])}\n"
+    )
     
-    # ✅ Second pass: Review with context
-    for file_ref in request.files:
+    # ✅ Second pass: Review each file with full project context
+    for file_path, content in project_context["files"].items():
         try:
-            content = project_context["files"].get(file_ref.path)
-            if not content:
-                continue
+            language, chunks = get_language_and_chunks(file_path, content)
             
-            language, chunks = get_language_and_chunks(file_ref.path, content)
-            
-            logging.info(f"Reviewing {file_ref.path} as {language} ({len(chunks)} chunks)")
-            
-            file_results = []
-            start_line = 1
-            has_real_issues = False
-            
-            for chunk in chunks:
-                try:
-                    result = await review_code_chunk_with_context(
-                        chunk=chunk,
-                        language=language,
-                        start_line=start_line,
-                        file_path=file_ref.path,
-                        project_context=context_summary,
-                        full_file_content=content
-                    )
-                    
-                    suggestion_text = result.get("comment", "")
-                    
-                    # ✅ Skip "no issues" responses
-                    if "no issues" in suggestion_text.lower() or "looks good" in suggestion_text.lower():
-                        logging.info(f"Skipping chunk with no issues for {file_ref.path}")
-                        continue
-                    
-                    has_real_issues = True
-                    highlighted_lines = result.get("lines", [])
-                    
-                    line_start = highlighted_lines[0] if highlighted_lines else start_line
-                    line_end = highlighted_lines[-1] if highlighted_lines else (start_line + chunk.count('\n'))
-                    
-                    # Apply suggestion and generate diff
-                    applied_result = CodeApplier.smart_apply_suggestion(
-                        original_code=content,
-                        suggestion=suggestion_text,
-                        line_start=line_start,
-                        line_end=line_end,
-                        file_path=file_ref.path
-                    )
-                    
-                    file_results.append({
-                        "suggestion": suggestion_text,
-                        "comment": suggestion_text,  # ✅ Add alias for frontend
-                        "chunk_preview": chunk[:500],
-                        "highlighted_lines": highlighted_lines,
-                        "original_content": content,
-                        "modified_content": applied_result.get("modified_code", content),
-                        "diff": applied_result.get("diff", ""),
-                        "applied": applied_result.get("applied", False),
-                        "changes": applied_result.get("changes", []),
-                        "error": applied_result.get("error"),
-                        "severity": result.get("severity")  # ✅ Add severity
+            file_reviews = []
+            for idx, chunk in enumerate(chunks):
+                start_line = idx * 50 + 1  # Approximate line numbers
+                
+                review = await review_code_chunk_with_context(
+                    chunk=chunk,
+                    language=language,
+                    start_line=start_line,
+                    file_path=file_path,
+                    project_context=context_summary,
+                    full_file_content=content
+                )
+                
+                # ✅ Only include reviews with actual findings
+                if review.get("severity") in ["HIGH", "MEDIUM"]:
+                    file_reviews.append({
+                        "comment": review["comment"],
+                        "line": start_line,
+                        "highlighted_lines": review.get("lines"),
+                        "has_code_block": review.get("has_code_block", False),
+                        "severity": review["severity"]
                     })
-                    
-                    start_line += chunk.count('\n')
-                except Exception as e:
-                    logging.error(f"Error reviewing chunk: {e}")
-                    continue
+                    logging.info(f"Found {review['severity']} issue in {file_path} at line {start_line}")
             
-            # ✅ Only include file in results if it has real issues
-            if has_real_issues and file_results:
+            if file_reviews:
                 review_results["review"].append({
-                    "file": file_ref.path,
-                    "results": file_results
+                    "file": file_path,
+                    "suggestions": file_reviews
                 })
+                logging.info(f"✅ Completed review of {file_path}: {len(file_reviews)} findings")
             else:
-                logging.info(f"No actionable issues found for {file_ref.path} - skipping")
-            
+                logging.info(f"✅ No issues found in {file_path}")
+                
         except Exception as e:
-            logging.exception(f"Error processing file {file_ref.path}: {e}")
+            logging.exception(f"Error reviewing {file_path}: {e}")
             review_results["review"].append({
-                "file": file_ref.path,
-                "error": str(e)
+                "file": file_path,
+                "error": f"Review failed: {str(e)}"
             })
     
     return review_results

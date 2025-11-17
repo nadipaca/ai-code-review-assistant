@@ -1,6 +1,7 @@
 import pickle
 import os
 import hashlib
+import requests
 
 # 🔴 HIGH: Unsafe deserialization
 def load_user_session(session_data):
@@ -19,11 +20,11 @@ def read_user_file(filename):
     with open(f"/var/uploads/{filename}", 'r') as f:
         return f.read()
 
-# 🔴 HIGH: SQL injection
+# 🔴 HIGH: SQL injection (simulated)
 def authenticate_user(username, password):
     query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
-    cursor.execute(query)
-    return cursor.fetchone()
+    # cursor.execute(query)
+    return query  # Would execute in real scenario
 
 # 🟠 MEDIUM: No exception handling
 def process_order(order_id):
@@ -32,6 +33,18 @@ def process_order(order_id):
     update_inventory(order.items)
     send_confirmation_email(order.user_email)
     return True
+
+def get_order(order_id):
+    return {"total": 100, "items": ["item1"], "user_email": "user@example.com"}
+
+def charge_card(amount):
+    return True
+
+def update_inventory(items):
+    pass
+
+def send_confirmation_email(email):
+    pass
 
 # 🔴 HIGH: Hardcoded secrets
 API_KEY = "12345-secret-key-67890"
