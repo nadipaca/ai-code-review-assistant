@@ -14,17 +14,14 @@ from app.services.rag_service import (
     chunk_typescript_file,
     chunk_generic_file
 )
-from app.services.llm_service import review_code_chunk_with_context
+from app.services.llm_service import review_code_chunk_with_context, parse_individual_issues
 from app.api.auth import sessions
 from app.services.pr_publisher import PRPublisher
 from app.services.pr_creator import PRCreator
 from app.services.code_applier import CodeApplier
-from app.models import FileRef, ApplySuggestionRequest
+from app.models import FileRef, ApplySuggestionRequest, ReviewRequest, CreatePRWithChangesRequest
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
-
-class ReviewRequest(BaseModel):
-    files: List[FileRef]
 
 class PublishSuggestion(BaseModel):
     file: str
@@ -41,15 +38,9 @@ class PublishRequest(BaseModel):
 class CreatePRRequest(BaseModel):
     owner: str
     repo: str
-    base_branch: Optional[str] = None
-    review_results: dict
-
-class CreatePRWithChangesRequest(BaseModel):
-    owner: str
-    repo: str
-    branch_name: str
-    base_branch: Optional[str] = None
-    changes: List[dict]
+    branch_name: Optional[str] = None
+    title: Optional[str] = None
+    body: Optional[str] = None
 
 def get_language_and_chunks(file_path: str, content: str):
     """
@@ -95,16 +86,18 @@ async def start_review(
     
     review_results = {"review": []}
     
+    # First pass: Fetch all file contents to build project context
     project_context = {
         "files": {},
         "structure": []
     }
     
+    # Updated skip list - only skip infrastructure files, NOT test files
     SKIP_FILES = [
-        'auth.py',      # Don't review auth logic
-        'protected.py', # Don't review JWT dependencies
-        'jwt_auth.py',  # Don't review JWT core
-        '__init__.py',  # Skip init files
+        'auth.py',
+        'protected.py',
+        'jwt_auth.py',
+        '__init__.py',
     ]
     
     for file_ref in request.files:
@@ -130,21 +123,18 @@ async def start_review(
                 "error": f"Failed to fetch file: {str(e)}"
             })
     
-    # ✅ Build project context summary
-    context_summary = (
-        f"**Project Structure:**\n"
-        f"Files: {', '.join(project_context['structure'])}\n\n"
-        f"**Total files in context:** {len(project_context['files'])}\n"
-    )
+    # Build context summary
+    context_summary = f"Project structure: {', '.join(project_context['structure'])}\n"
+    context_summary += f"Total files in context: {len(project_context['files'])}\n"
     
-    # ✅ Second pass: Review each file with full project context
+    # Second pass: Review each file with full project context
     for file_path, content in project_context["files"].items():
         try:
             language, chunks = get_language_and_chunks(file_path, content)
             
             file_reviews = []
-            for idx, chunk in enumerate(chunks):
-                start_line = idx * 50 + 1  # Approximate line numbers
+            for i, chunk in enumerate(chunks):
+                start_line = i * 1000 + 1
                 
                 review = await review_code_chunk_with_context(
                     chunk=chunk,
@@ -155,26 +145,34 @@ async def start_review(
                     full_file_content=content
                 )
                 
-                # ✅ Only include reviews with actual findings
-                if review.get("severity") in ["HIGH", "MEDIUM"]:
-                    file_reviews.append({
-                        "comment": review["comment"],
-                        "line": start_line,
-                        "highlighted_lines": review.get("lines"),
-                        "has_code_block": review.get("has_code_block", False),
-                        "severity": review["severity"]
-                    })
-                    logging.info(f"Found {review['severity']} issue in {file_path} at line {start_line}")
-            
+                # Only include reviews with actual findings
+                if review.get("severity") in ["HIGH", "MEDIUM"] and review.get("comment"):
+                    # Parse individual issues from the LLM response
+                    individual_issues = parse_individual_issues(
+                        llm_response=review["comment"],
+                        original_code=content,
+                        file_path=file_path
+                    )
+                    
+                    # Add each issue as a separate entry
+                    for issue in individual_issues:
+                        file_reviews.append({
+                            "comment": issue["comment"],
+                            "diff": issue["diff"],
+                            "highlighted_lines": issue["highlighted_lines"],
+                            "severity": issue["severity"],
+                            "has_code_block": issue["has_code_block"]
+                        })
+                        logging.info(f"Found {issue['severity']} issue in {file_path}")
             if file_reviews:
                 review_results["review"].append({
                     "file": file_path,
-                    "suggestions": file_reviews
+                    "results": file_reviews
                 })
                 logging.info(f"✅ Completed review of {file_path}: {len(file_reviews)} findings")
             else:
                 logging.info(f"✅ No issues found in {file_path}")
-                
+        
         except Exception as e:
             logging.exception(f"Error reviewing {file_path}: {e}")
             review_results["review"].append({
@@ -209,20 +207,19 @@ async def publish_review(
             owner=request.owner,
             repo=request.repo,
             pull_number=request.pull_number,
-            suggestions=request.suggestions
+            suggestions=[s.dict() for s in request.suggestions]
         )
         return {"ok": True, "review": result}
     except Exception as e:
         logging.exception(f"Failed to publish review: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.post("/create-pr")
+@router.post("/create-review-pr")
 async def create_review_pr(
     request: CreatePRRequest,
     access_token: Optional[str] = Cookie(None)
 ):
-    """Create a new PR with AI review suggestions (draft PR without actual changes)"""
+    """Create a new PR with review comments (no code changes)"""
     if not access_token:
         raise HTTPException(status_code=401, detail="Missing access token")
     
@@ -238,15 +235,17 @@ async def create_review_pr(
     creator = PRCreator(github_token)
     
     try:
-        pr_data = await creator.create_review_pr(
+        pr_data = await creator.create_review_pr_with_changes(
             owner=request.owner,
             repo=request.repo,
-            base_branch=request.base_branch,
-            review_results=request.review_results
+            branch_name=request.branch_name,
+            title=request.title,
+            body=request.body,
+            approved_changes=[]
         )
         return {"ok": True, "pr": pr_data}
     except Exception as e:
-        logging.exception(f"Failed to create PR: {e}")
+        logging.exception(f"Failed to create review PR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/create-pr-with-changes")
@@ -272,10 +271,10 @@ async def create_pr_with_changes(
     try:
         approved_changes = [
             {
-                "file": change["file"],
-                "original_content": change.get("original_content", ""),
-                "modified_content": change.get("modified_content", ""),
-                "suggestion": change.get("suggestion", "")
+                "file": change.file,
+                "original_content": change.original_content,
+                "modified_content": change.modified_content,
+                "suggestion": change.suggestion
             }
             for change in request.approved_changes
         ]
@@ -284,7 +283,7 @@ async def create_pr_with_changes(
             owner=request.owner,
             repo=request.repo,
             base_branch=request.base_branch,
-            branch_name=request.branch_name,  
+            branch_name=request.branch_name,
             approved_changes=approved_changes
         )
         
@@ -330,7 +329,15 @@ async def apply_suggestion(
             file_path=request.file_ref.path
         )
         
-        return result
-    except Exception as e:
+        # Enhanced response with original content and diff
+        return {
+            "original_content": original_content,
+            "modified_code": result["modified_code"],
+            "diff": result["diff"],
+            "applied": result["applied"],
+            "changes": result["changes"],
+            "error": result.get("error")
+        }
         logging.exception(f"Failed to apply suggestion: {e}")
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

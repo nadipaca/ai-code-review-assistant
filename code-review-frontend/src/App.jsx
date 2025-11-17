@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-console.log("App.jsx loaded");
 
 // Simple error boundary to show runtime errors instead of blank screen
 class ErrorBoundary extends React.Component {
@@ -142,6 +141,9 @@ function App() {
       return;
     }
     
+    // Route to /review page
+    window.history.pushState({}, '', '/review');
+
     setShowInteractiveReview(true);
     
     toast({ 
@@ -166,47 +168,49 @@ function App() {
 
   
   async function handlePublishToPR() {
-    if (!selectedRepo || !prNumber || !reviewResults) return;
-    setPublishing(true);
-    try {
-      // Transform reviewResults -> suggestions with line numbers
-      const suggestions = (reviewResults && Array.isArray(reviewResults.review))
-        ? reviewResults.review.map((fileObj) => {
-            if (fileObj.error) {
-              return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
+  if (!selectedRepo || !prNumber || !reviewResults) return;
+  setPublishing(true);
+  try {
+    // Transform reviewResults -> suggestions with line numbers
+    const suggestions = (reviewResults && Array.isArray(reviewResults.review))
+      ? reviewResults.review.map((fileObj) => {
+          if (fileObj.error) {
+            return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
+          }
+          
+          // Aggregate all highlighted lines from all chunks
+          const allLines = [];
+          const parts = [];
+          
+          // ✅ FIX: Changed from fileObj.suggestions to fileObj.results
+          (fileObj.results || []).forEach((r, idx) => {
+            if (r.error) {
+              parts.push(`**Chunk ${idx + 1} - Error:** ${r.error}`);
+              return;
             }
-            
-            // Aggregate all highlighted lines from all chunks
-            const allLines = [];
-            const parts = [];
-            
-            (fileObj.results || []).forEach((r, idx) => {
-              if (r.error) {
-                parts.push(`**Chunk ${idx + 1} - Error:** ${r.error}`);
-                return;
-              }
-              if (r.suggestion) {
-                parts.push(`**Suggestion ${idx + 1}:**\n${r.suggestion}`);
-              }
-              if (r.chunk_preview) {
-                parts.push("```" + "\n" + r.chunk_preview + "\n" + "```");
-              }
-              // Collect line numbers for inline comments
-              if (r.highlighted_lines && Array.isArray(r.highlighted_lines)) {
-                allLines.push(...r.highlighted_lines);
-              }
-            });
-            
-            const comment = parts.join("\n\n") || "_No suggestion provided._";
-            
-            // Return suggestion with line info for inline commenting
-            return {
-              file: fileObj.file,
-              comment,
-              highlighted_lines: allLines.length > 0 ? allLines : null
-            };
-          })
-        : [];
+            // ✅ FIX: Changed from r.comment to r.suggestion
+            if (r.suggestion) {
+              parts.push(`**Suggestion ${idx + 1}:**\n${r.suggestion}`);
+            }
+            if (r.chunk_preview) {
+              parts.push("```" + "\n" + r.chunk_preview + "\n" + "```");
+            }
+            // Collect line numbers for inline comments
+            if (r.highlighted_lines && Array.isArray(r.highlighted_lines)) {
+              allLines.push(...r.highlighted_lines);
+            }
+          });
+          
+          const comment = parts.join("\n\n") || "_No suggestion provided._";
+          
+          // Return suggestion with line info for inline commenting
+          return {
+            file: fileObj.file,
+            comment,
+            highlighted_lines: allLines.length > 0 ? allLines : null
+          };
+        })
+      : [];
   
       if (suggestions.length === 0) {
         toast({ 

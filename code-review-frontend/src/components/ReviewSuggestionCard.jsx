@@ -5,237 +5,203 @@ import {
   Text,
   VStack,
   HStack,
-  Badge,
-  Code,
-  Textarea,
   Flex,
   IconButton,
-  useToast
+  Code
 } from '@chakra-ui/react';
-import { CheckIcon, CloseIcon, EditIcon } from '@chakra-ui/icons';
+import { ChevronUpIcon, ChevronDownIcon, CheckIcon } from '@chakra-ui/icons';
 
 export function ReviewSuggestionCard({ 
   suggestion, 
   onApprove, 
   onReject, 
-  onEdit 
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedSuggestion, setEditedSuggestion] = useState(suggestion.comment);
-  const toast = useToast();
+   const [isExpanded, setIsExpanded] = useState(true);
 
-  const getSeverityInfo = () => {
-    const comment = suggestion.comment || "";
-    if (comment.includes("**Severity:** HIGH") || comment.includes("🔴")) {
-      return { level: "HIGH", color: "red", label: "High Severity" };
-    }
-    if (comment.includes("**Severity:** MEDIUM") || comment.includes("🟠")) {
-      return { level: "MEDIUM", color: "orange", label: "Medium Severity" };
-    }
-    return { level: "INFO", color: "blue", label: "Information" };
-  };
-// ✅ Detect dangerous deletions
-  const isDeletion = suggestion.diff && suggestion.diff.includes('--- a/') && 
-                     (suggestion.diff.match(/^-/gm) || []).length > 10;
-  const severity = getSeverityInfo();
-
-  // Parse diff lines from suggestion
+  // Enhanced diff rendering with proper GitHub-style formatting
   const renderDiff = () => {
     if (!suggestion.diff) return null;
 
     const lines = suggestion.diff.split('\n');
     
     return (
-      <Box 
-        bg="white" 
-        border="2px solid" 
-        borderColor={isDeletion ? "red.500" : severity.level === "HIGH" ? "red.300" : "orange.300"}
-        borderRadius="md"
-        overflow="hidden"
-        fontFamily="monospace"
-        fontSize="13px"
-      >
-        {lines.map((line, idx) => {
-          let bgColor = 'white';
-          let textColor = 'gray.800';
-          let symbol = '';
+      <Box mt={4}>
+        <Text fontSize="xs" fontWeight="bold" color="gray.600" mb={2}>
+          SUGGESTED CHANGE
+        </Text>
+        <Box 
+          bg="gray.50" 
+          border="1px solid" 
+          borderColor="gray.300"
+          borderRadius="md"
+          overflow="hidden"
+          fontFamily="'Monaco', 'Menlo', 'Ubuntu Mono', monospace"
+          fontSize="13px"
+        >
+          {lines.map((line, idx) => {
+            let bgColor = 'white';
+            let textColor = 'gray.800';
+            let lineNumberBg = 'gray.100';
+            let showLineNumber = true;
+            let linePrefix = '';
 
-          if (line.startsWith('+++') || line.startsWith('---')) {
-            bgColor = 'gray.50';
-            textColor = 'gray.600';
-          } else if (line.startsWith('+')) {
-            bgColor = 'green.50';
-            textColor = 'green.800';
-            symbol = '+';
-          } else if (line.startsWith('-')) {
-            bgColor = 'red.50';
-            textColor = 'red.800';
-            symbol = '-';
-          } else if (line.startsWith('@@')) {
-            bgColor = 'blue.50';
-            textColor = 'blue.700';
-          }
+            // File headers
+            if (line.startsWith('+++') || line.startsWith('---')) {
+              bgColor = 'gray.100';
+              textColor = 'gray.700';
+              showLineNumber = false;
+              linePrefix = '';
+            }
+            // Diff position markers
+            else if (line.startsWith('@@')) {
+              bgColor = 'blue.50';
+              textColor = 'blue.700';
+              showLineNumber = false;
+              linePrefix = '';
+            }
+            // Added lines
+            else if (line.startsWith('+') && !line.startsWith('+++')) {
+              bgColor = 'green.50';
+              textColor = 'green.900';
+              lineNumberBg = 'green.100';
+              linePrefix = '+';
+            }
+            // Deleted lines
+            else if (line.startsWith('-') && !line.startsWith('---')) {
+              bgColor = 'red.50';
+              textColor = 'red.900';
+              lineNumberBg = 'red.100';
+              linePrefix = '-';
+            }
+            // Context lines (unchanged)
+            else if (line.startsWith(' ')) {
+              bgColor = 'white';
+              textColor = 'gray.800';
+              linePrefix = ' ';
+            }
+            // Empty or other lines
+            else {
+              showLineNumber = false;
+            }
 
-          return (
-            <Box
-              key={idx}
-              bg={bgColor}
-              px={3}
-              py={0.5}
-              _hover={{ 
-                bg: line.startsWith('+') ? 'green.100' : 
-                    line.startsWith('-') ? 'red.100' : bgColor 
-              }}
-            >
-              <Code bg="transparent" color={textColor} whiteSpace="pre">
-                {symbol && <Text as="span" fontWeight="bold" mr={2}>{symbol}</Text>}
-                {line}
-              </Code>
-            </Box>
-          );
-        })}
+            // Remove the prefix from the actual line content for display
+            const displayLine = line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') 
+              ? line.substring(1) 
+              : line;
+
+            return (
+              <Flex
+                key={idx}
+                bg={bgColor}
+                borderBottom="1px solid"
+                borderColor="gray.200"
+                _last={{ borderBottom: 'none' }}
+              >
+                {showLineNumber && (
+                  <Box
+                    bg={lineNumberBg}
+                    px={3}
+                    py={1}
+                    minW="50px"
+                    textAlign="right"
+                    color="gray.600"
+                    fontSize="12px"
+                    borderRight="1px solid"
+                    borderColor="gray.300"
+                    userSelect="none"
+                  >
+                    {linePrefix}
+                  </Box>
+                )}
+                <Code 
+                  bg="transparent" 
+                  color={textColor} 
+                  whiteSpace="pre"
+                  px={showLineNumber ? 3 : 2}
+                  py={1}
+                  flex="1"
+                  borderRadius="0"
+                  fontSize="13px"
+                  fontFamily="inherit"
+                >
+                  {displayLine}
+                </Code>
+              </Flex>
+            );
+          })}
+        </Box>
       </Box>
     );
-  };
+};
 
-  const handleCommitSuggestion = () => {
-    onApprove(suggestion);
-    toast({
-      title: 'Suggestion approved',
-      status: 'success',
-      duration: 2000
-    });
-  };
+const handleCommitSuggestion = () => {
+  onApprove(suggestion);
+};
 
-  return (
-    <Box
-      border="2px solid"
-      borderColor={severity.level === "HIGH" ? "red.300" : severity.level === "MEDIUM" ? "orange.300" : "gray.200"}
-      borderRadius="md"
-      overflow="hidden"
-      bg="white"
-      mb={4}
-    >
-      {/* Header with file info */}
-      <Flex
-        bg={severity.level === "HIGH" ? "red.50" : severity.level === "MEDIUM" ? "orange.50" : "gray.50"}
-        px={4}
-        py={2}
-        borderBottom="1px solid"
-        borderColor="gray.200"
-        align="center"
-        justify="space-between"
+return (
+      <Box
+        border="1px solid"
+        borderColor="gray.300"
+        borderRadius="md"
+        overflow="hidden"
+        bg="white"
+        mb={4}
       >
-        <HStack>
-          <Badge colorScheme={severity.color}>
-            {severity.label}
-          </Badge>
-          <Badge colorScheme={suggestion.applied ? 'green' : 'yellow'}>
-            {suggestion.applied ? 'Ready to apply' : 'Review only'}
-          </Badge>
-          <Text fontSize="sm" fontWeight="medium" color="gray.700">
-            {suggestion.file}
-          </Text>
-          {suggestion.highlighted_lines && (
-            <Badge colorScheme="blue" fontSize="xs">
-              Lines {suggestion.highlighted_lines[0]}-{suggestion.highlighted_lines[suggestion.highlighted_lines.length - 1]}
-            </Badge>
-          )}
-        </HStack>
-        <IconButton
-          icon={<EditIcon />}
-          size="xs"
-          variant="ghost"
-          onClick={() => setIsEditing(!isEditing)}
-        />
-      </Flex>
-
-      {isDeletion && (
-        <Box px={4} py={2} bg="red.50" borderBottom="1px solid" borderColor="red.200">
-          <Text fontSize="xs" color="red.800" fontWeight="bold">
-            ⚠️ WARNING: This suggestion removes significant code. Review carefully before applying!
-          </Text>
-        </Box>
-      )}
-      
-      {/* AI Comment with Explanation */}
-      <Box px={4} py={3} bg="blue.50" borderBottom="1px solid" borderColor="blue.100">
-        {isEditing ? (
-          <VStack align="stretch" spacing={2}>
-            <Textarea
-              value={editedSuggestion}
-              onChange={(e) => setEditedSuggestion(e.target.value)}
-              size="sm"
-              bg="white"
-              rows={6}
-            />
-            <HStack justify="flex-end">
-              <Button size="xs" onClick={() => setIsEditing(false)}>Cancel</Button>
-              <Button 
-                size="xs" 
-                colorScheme="blue"
-                onClick={() => {
-                  onEdit({ ...suggestion, comment: editedSuggestion });
-                  setIsEditing(false);
-                }}
-              >
-                Save
-              </Button>
-            </HStack>
-          </VStack>
-        ) : (
-          <Box>
-            <Text fontSize="sm" color="blue.900" whiteSpace="pre-wrap">
-              {suggestion.comment}
+        {/* Header - Just file path */}
+        <Box bg="gray.50" p={3} borderBottom="1px solid" borderColor="gray.200">
+          <HStack justify="space-between">
+            <Text fontSize="sm" fontWeight="semibold" color="gray.800">
+              📁 {suggestion.file}
             </Text>
-            {/* ✅ Show impact/explanation prominently */}
-            {suggestion.comment && suggestion.comment.includes("**Impact:**") && (
-              <Box mt={3} p={2} bg="yellow.50" borderLeft="4px solid" borderColor="yellow.400" borderRadius="md">
-                <Text fontSize="xs" fontWeight="bold" color="gray.700">💡 Why this matters:</Text>
-                <Text fontSize="xs" color="gray.600" mt={1}>
-                  {suggestion.comment.match(/\*\*Impact:\*\* (.+?)(?:\n|\*\*)/)?.[1] || "See details above"}
+            <IconButton
+              size="sm"
+              icon={isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+              onClick={() => setIsExpanded(!isExpanded)}
+              variant="ghost"
+            />
+          </HStack>
+        </Box>
+  
+        {/* Content */}
+        {isExpanded && (
+          <Box p={4}>
+            <VStack align="stretch" spacing={4}>
+              {/* Comment */}
+              <Box>
+                <Text fontSize="sm" color="gray.800" lineHeight="tall">
+                  {suggestion.comment || 'No details provided'}
                 </Text>
               </Box>
-            )}
+
+              {/* Render diff if available */}
+              {renderDiff()}
+  
+              {/* Action Buttons - Only show Approve if there's a diff */}
+              <HStack spacing={3} justify="flex-end" pt={2}>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  colorScheme="red"
+                  onClick={() => onReject(suggestion)}
+                >
+                  Dismiss
+                </Button>
+                {suggestion.diff && (
+                  <Button 
+                    size="sm" 
+                    colorScheme="green"
+                    leftIcon={<CheckIcon />}
+                    onClick={handleCommitSuggestion}
+                  >
+                    Approve Change
+                  </Button>
+                )}
+              </HStack>
+            </VStack>
           </Box>
         )}
       </Box>
-
-      {/* Diff View */}
-      <Box p={4}>
-        {renderDiff()}
-      </Box>
-
-      {/* Action Buttons */}
-      <Flex
-        px={4}
-        py={3}
-        bg="gray.50"
-        borderTop="1px solid"
-        borderColor="gray.200"
-        justify="flex-end"
-        gap={3}
-      >
-        <Button
-          leftIcon={<CloseIcon />}
-          size="sm"
-          variant="outline"
-          onClick={() => onReject(suggestion)}
-        >
-          Dismiss
-        </Button>
-        <Button
-          leftIcon={<CheckIcon />}
-          size="sm"
-          colorScheme={severity.level === "HIGH" ? "red" : "green"}
-          onClick={handleCommitSuggestion}
-          isDisabled={!suggestion.applied}
-        >
-          {severity.level === "HIGH" ? "⚠️ Apply Critical Fix" : "Commit suggestion"}
-        </Button>
-      </Flex>
-    </Box>
-  );
-}
+    );
+};
 
 export default ReviewSuggestionCard;

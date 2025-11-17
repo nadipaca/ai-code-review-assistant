@@ -19,7 +19,7 @@ class PRPublishRequest(BaseModel):
     owner: str
     repo: str
     pull_number: int
-    suggestions: List[dict]  # [{"file": "...", "comment": "...", "line": 42, "highlighted_lines": [10,15]}]
+    suggestions: List[dict]
 
 class ApprovedChange(BaseModel):
     file: str
@@ -33,6 +33,7 @@ class CreatePRWithChangesRequest(BaseModel):
     owner: str
     repo: str
     base_branch: Optional[str] = None
+    branch_name: Optional[str] = None
     approved_changes: List[ApprovedChange]
 
 class ApplySuggestionRequest(BaseModel):

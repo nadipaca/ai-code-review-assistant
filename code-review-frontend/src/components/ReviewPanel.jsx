@@ -84,7 +84,7 @@ export function ReviewPanel({
           </Center>
         )}
 
-        {reviewResults && (
+        {reviewResults && reviewResults.review && (
           <Box mt={6} p={4} bg="gray.800" borderRadius="md">
             <Heading size="md" mb={4}>Review Results</Heading>
             {reviewResults.review.map((fileObj, i) => (
@@ -102,14 +102,22 @@ export function ReviewPanel({
                         const parts = [];
                         parts.push(`File: ${fileObj.file}`);
                         parts.push('');
+                        // ✅ Use "results" array with safety check
                         (fileObj.results || []).forEach((r, idx) => {
-                          if (r.error) { parts.push(`Chunk ${idx + 1} error: ${r.error}`); parts.push(''); return; }
+                          if (r.error) { 
+                            parts.push(`Chunk ${idx + 1} error: ${r.error}`); 
+                            parts.push(''); 
+                            return; 
+                          }
                           parts.push(`Suggestion ${idx + 1}:`);
-                          parts.push(r.suggestion || '');
+                          // ✅ Use "suggestion" field
+                          parts.push(r.suggestion || r.comment || 'No suggestion');
                           parts.push('');
                           parts.push('Chunk preview:');
-                          parts.push(r.chunk_preview || '');
-                          if (r.highlighted_lines) parts.push('Highlighted lines: ' + r.highlighted_lines.join(', '));
+                          parts.push(r.chunk_preview || 'No preview available');
+                          if (r.highlighted_lines && r.highlighted_lines.length > 0) {
+                            parts.push('Highlighted lines: ' + r.highlighted_lines.join(', '));
+                          }
                           parts.push('');
                         });
 
@@ -117,12 +125,23 @@ export function ReviewPanel({
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         const fname = sanitizeFilename(fileObj.file) + '.review.txt';
-                        a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-                        toast({ title: 'Exported review', description: fname, status: 'success', duration: 3000, isClosable: true });
+                        a.href = url; 
+                        a.download = fname; 
+                        document.body.appendChild(a); 
+                        a.click(); 
+                        a.remove(); 
+                        URL.revokeObjectURL(url);
                       } catch (err) {
-                        toast({ title: 'Export failed', description: String(err), status: 'error', duration: 4000, isClosable: true });
+                        console.error('Export failed:', err);
+                        toast({ 
+                          title: 'Export failed', 
+                          status: 'error', 
+                          duration: 3000 
+                        });
                       }
-                    }}>Export</Button>
+                    }}>
+                      Export
+                    </Button>
                   )}
                 </Box>
               </Box>

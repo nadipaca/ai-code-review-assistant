@@ -3,13 +3,17 @@ from typing import Optional, List, Dict
 import logging
 import base64
 import json
+import os
+
+# Configuration constant
+DEFAULT_TIMEOUT = float(os.getenv("GITHUB_API_TIMEOUT", "30.0"))
 
 class PRCreator:
     """Creates GitHub Pull Requests with actual code changes"""
     
-    def __init__(self, github_token: str):
-        self.github_token = github_token
-        self.base_headers = {
+    def __init__(self, github_token: str) -> None:
+        self.github_token: str = github_token
+        self.base_headers: Dict[str, str] = {
             "Authorization": f"token {github_token}",
             "Accept": "application/vnd.github.v3+json"
         }
@@ -17,7 +21,7 @@ class PRCreator:
     async def _get_default_branch(self, owner: str, repo: str) -> str:
         """Get the default branch of the repository"""
         url = f"https://api.github.com/repos/{owner}/{repo}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(url, headers=self.base_headers)
             response.raise_for_status()
             repo_info = response.json()
@@ -26,7 +30,7 @@ class PRCreator:
     async def _get_latest_commit_sha(self, owner: str, repo: str, branch: str) -> str:
         """Get the latest commit SHA from a branch"""
         url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.get(url, headers=self.base_headers)
             response.raise_for_status()
             ref_info = response.json()
@@ -35,7 +39,7 @@ class PRCreator:
     async def _get_file_sha(self, owner: str, repo: str, branch: str, path: str) -> Optional[str]:
         """Get the SHA of a file in a specific branch (needed for updates)"""
         url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
                 response = await client.get(url, headers=self.base_headers)
                 response.raise_for_status()
@@ -49,7 +53,7 @@ class PRCreator:
     async def _create_branch(self, owner: str, repo: str, branch_name: str, sha: str) -> bool:
         """Create a new branch from a commit SHA"""
         check_url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{branch_name}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
                 check_response = await client.get(check_url, headers=self.base_headers)
                 if check_response.status_code == 200:
@@ -63,7 +67,7 @@ class PRCreator:
             "ref": f"refs/heads/{branch_name}",
             "sha": sha
         }
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
                 response = await client.post(url, json=payload, headers=self.base_headers)
                 response.raise_for_status()
@@ -106,7 +110,7 @@ class PRCreator:
         if file_sha:
             payload["sha"] = file_sha  # Required for updates
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             response = await client.put(url, json=payload, headers=self.base_headers)
             response.raise_for_status()
             return response.json()

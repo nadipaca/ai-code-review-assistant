@@ -17,6 +17,26 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# ✅ Add environment variable validation
+REQUIRED_ENV_VARS = [
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "OPENAI_API_KEY",
+    "JWT_SECRET"
+]
+
+def validate_environment():
+    """Validate that all required environment variables are set"""
+    missing_vars = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing_vars:
+        raise EnvironmentError(
+            f"Missing required environment variables: {', '.join(missing_vars)}\n"
+            f"Please check your .env file"
+        )
+
+# Validate environment on startup
+validate_environment()
+
 from app.api import auth
 from app.api import profile
 from app.api import protected

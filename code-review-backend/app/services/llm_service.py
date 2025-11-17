@@ -2,8 +2,89 @@ import logging
 from openai import AsyncOpenAI
 import os
 import re
+import difflib
 
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Configure detailed logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+def parse_individual_issues(llm_response: str, original_code: str, file_path: str) -> list:
+    """
+    Parse LLM response into individual issues with diffs.
+    Each issue contains: comment, diff, highlighted_lines
+    """
+    issues = []
+    
+    # Split by horizontal rules or numbered issues
+    sections = re.split(r'\n---\n|\n\d+\.\s+', llm_response)
+    
+    for section in sections:
+        if not section.strip() or len(section) < 50:
+            continue
+            
+        # Extract severity
+        severity_match = re.search(r'\*\*Severity:\*\*\s*🔴\s*HIGH|\*\*Severity:\*\*\s*🟠\s*MEDIUM', section)
+        severity = "HIGH" if "🔴" in section or "HIGH" in section else "MEDIUM"
+        
+        # Extract issue description (Issue + Impact)
+        issue_match = re.search(r'\*\*Issue:\*\*\s*([^\*]+)', section)
+        impact_match = re.search(r'\*\*Impact:\*\*\s*([^\*]+)', section)
+        
+        comment_parts = []
+        if issue_match:
+            comment_parts.append(issue_match.group(1).strip())
+        if impact_match:
+            comment_parts.append(f"Impact: {impact_match.group(1).strip()}")
+        
+        comment = " ".join(comment_parts) if comment_parts else section[:200]
+        
+        # Extract code block (the fix)
+        code_block_match = re.search(r'```[\w]*\n([\s\S]*?)\n```', section)
+        
+        if code_block_match:
+            fixed_code = code_block_match.group(1).strip()
+            
+            # Extract line numbers mentioned in the issue
+            line_numbers = []
+            for match in re.finditer(r'[Ll]ine[s]?\s+(\d+)(?:-(\d+))?', section):
+                if match.group(2):
+                    line_numbers.extend(range(int(match.group(1)), int(match.group(2)) + 1))
+                else:
+                    line_numbers.append(int(match.group(1)))
+            
+            # Generate diff
+            diff = ""
+            if line_numbers and fixed_code:
+                # Extract the relevant lines from original code
+                original_lines = original_code.split('\n')
+                start_line = max(0, min(line_numbers) - 1)
+                end_line = min(len(original_lines), max(line_numbers))
+                
+                original_snippet = '\n'.join(original_lines[start_line:end_line])
+                
+                # Generate unified diff
+                diff_lines = list(difflib.unified_diff(
+                    original_snippet.splitlines(keepends=True),
+                    fixed_code.splitlines(keepends=True),
+                    fromfile=f"a/{file_path}",
+                    tofile=f"b/{file_path}",
+                    lineterm=''
+                ))
+                diff = ''.join(diff_lines)
+            
+            issues.append({
+                "comment": comment,
+                "diff": diff,
+                "highlighted_lines": line_numbers[:10] if line_numbers else [],
+                "severity": severity,
+                "has_code_block": True
+            })
+    
+    return issues if issues else []
 
 def extract_line_numbers(content: str, base_line: int) -> list:
     """Extract line numbers from AI response"""
@@ -34,8 +115,15 @@ async def review_code_chunk_with_context(
 ) -> dict:
     """Review code with intelligent severity filtering and context awareness."""
     
-    # ✅ Detect if this is a test file with intentional vulnerabilities
+    # Detect if this is a test file with intentional vulnerabilities
     is_test_file = any(marker in file_path.lower() for marker in ['test-repo/', '/test/', 'test.py', 'test.js', 'test.ts', 'userservice.java'])
+    
+    logging.info(f"{'='*80}")
+    logging.info(f"🔍 REVIEWING: {file_path}")
+    logging.info(f"📁 Is test file: {is_test_file}")
+    logging.info(f"📝 Language: {language}")
+    logging.info(f"📏 Chunk length: {len(chunk)} chars")
+    logging.info(f"🔢 Starting at line: {start_line}")
     
     if is_test_file:
         prompt = (
@@ -94,13 +182,15 @@ async def review_code_chunk_with_context(
     resp = await client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=1500,  # ✅ Increased for detailed responses
-        temperature=0.1,  # ✅ Slightly higher for test files
+        max_tokens=1500,
+        temperature=0.1,
     )
 
     content = resp.choices[0].message.content
     
-    # ✅ Only apply false positive filtering for NON-test files
+    logging.info(f"📥 RAW LLM RESPONSE ({len(content)} chars)")
+    
+    # Only apply false positive filtering for NON-test files
     if not is_test_file:
         false_positive_patterns = [
             "already handled",
@@ -113,6 +203,7 @@ async def review_code_chunk_with_context(
         ]
         
         if any(pattern in content.lower() for pattern in false_positive_patterns):
+            logging.info(f"❌ FILTERED OUT: False positive detected")
             return {
                 "comment": "✅ No issues found - error handling is adequate",
                 "lines": None,
@@ -126,13 +217,14 @@ async def review_code_chunk_with_context(
     elif "**Severity:** MEDIUM" in content or "🟠" in content:
         severity = "MEDIUM"
     
-    # ✅ For test files, be less strict about severity
+    # For test files, be less strict about severity
     if is_test_file:
         if not severity and ("vulnerability" in content.lower() or "security" in content.lower()):
-            severity = "MEDIUM"  # Default to MEDIUM if security issue detected
+            severity = "MEDIUM"
+            logging.warning(f"⚠️ Test file: Defaulting to MEDIUM severity")
     else:
         if severity not in ["HIGH", "MEDIUM"]:
-            logging.info(f"Skipping LOW severity issue: {content[:100]}")
+            logging.info(f"❌ FILTERED OUT: Severity not HIGH/MEDIUM (was: {severity})")
             return {
                 "comment": "✅ No significant issues found",
                 "lines": None,
@@ -142,9 +234,14 @@ async def review_code_chunk_with_context(
     
     lines = extract_line_numbers(content, start_line)
     
-    return {
+    result = {
         "comment": content,
         "lines": lines if lines else None,
         "has_code_block": "```" in content,
         "severity": severity
     }
+    
+    logging.info(f"✅ RESULT: Severity={severity}, Lines={lines}, HasCode={'```' in content}")
+    logging.info(f"{'='*80}\n")
+    
+    return result
