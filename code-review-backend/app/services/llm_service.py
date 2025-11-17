@@ -46,39 +46,70 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
         code_blocks = re.findall(r'```[\w]*\n(.*?)\n```', section, re.DOTALL)
         fixed_code = code_blocks[0].strip() if code_blocks else ""
         
-        # ✅ Generate diff with CONTEXT LINES
+        # ✅ Generate diff with CONTEXT LINES and CORRECT line numbers
         diff = ""
         if line_numbers and fixed_code:
             original_lines = original_code.split('\n')
             
-            # ✅ Include context: 5 lines before and after
-            context_before = 5
-            context_after = 5
+            # ✅ Include context: 3 lines before and after
+            context_before = 3
+            context_after = 3
             
-            start_line = max(0, min(line_numbers) - context_before - 1)
-            end_line = min(len(original_lines), max(line_numbers) + context_after)
+            change_start_line = min(line_numbers)
+            change_end_line = max(line_numbers)
+            
+            # Calculate context window (0-indexed)
+            start_idx = max(0, change_start_line - context_before - 1)
+            end_idx = min(len(original_lines), change_end_line + context_after)
             
             # Extract original snippet with context
-            original_snippet = '\n'.join(original_lines[start_line:end_line])
+            original_snippet_lines = original_lines[start_idx:end_idx]
+            original_snippet = '\n'.join(original_snippet_lines)
             
             # Create modified snippet (replace changed lines, keep context)
             modified_lines = original_lines.copy()
-            change_start = min(line_numbers) - 1
-            change_end = max(line_numbers)
+            change_start_idx = change_start_line - 1  # 0-indexed
+            change_end_idx = change_end_line  # Exclusive end
             
             # Replace the changed section
-            modified_lines[change_start:change_end] = fixed_code.split('\n')
-            modified_snippet = '\n'.join(modified_lines[start_line:start_line + len(original_snippet.split('\n'))])
+            fixed_code_lines = fixed_code.split('\n')
+            modified_lines[change_start_idx:change_end_idx] = fixed_code_lines
             
-            # Generate unified diff
+            # Extract same context window from modified version
+            # Adjust end_idx if we added/removed lines
+            lines_diff = len(fixed_code_lines) - (change_end_idx - change_start_idx)
+            modified_end_idx = end_idx + lines_diff
+            modified_snippet_lines = modified_lines[start_idx:modified_end_idx]
+            modified_snippet = '\n'.join(modified_snippet_lines)
+            
+            # ✅ Generate unified diff with ACTUAL line numbers from file
             diff_lines = list(difflib.unified_diff(
                 original_snippet.splitlines(keepends=True),
                 modified_snippet.splitlines(keepends=True),
                 fromfile=f"a/{file_path}",
                 tofile=f"b/{file_path}",
+                fromfiledate='',
+                tofiledate='',
                 lineterm='',
-                n=5  # ✅ 5 context lines
+                n=context_before  # Context lines
             ))
+            
+            # ✅ Fix the diff header to show correct line numbers
+            # difflib uses 1-indexed line numbers by default, but we need to adjust
+            # because we're passing a snippet, not the full file
+            if diff_lines and diff_lines[0].startswith('---'):
+                # The @@ line is typically at index 2
+                for i, line in enumerate(diff_lines):
+                    if line.startswith('@@'):
+                        # Replace with actual file line numbers
+                        old_count = len(original_snippet_lines)
+                        new_count = len(modified_snippet_lines)
+                        # start_idx is 0-based, diff headers are 1-based
+                        actual_old_start = start_idx + 1
+                        actual_new_start = start_idx + 1
+                        diff_lines[i] = f"@@ -{actual_old_start},{old_count} +{actual_new_start},{new_count} @@\n"
+                        break
+            
             diff = ''.join(diff_lines)
         
         issues.append({

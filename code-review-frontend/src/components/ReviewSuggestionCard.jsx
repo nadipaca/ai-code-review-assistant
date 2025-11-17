@@ -60,14 +60,32 @@ export function ReviewSuggestionCard({
       : firstSentence;
   };
 
-  // ✅ Enhanced diff rendering with context lines
-   const renderDiffWithContext = () => {
+  // ✅ Parse diff header to extract starting line numbers
+  const parseDiffHeader = (headerLine) => {
+    // Parse @@ -oldStart,oldCount +newStart,newCount @@
+    const match = headerLine.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+    if (match) {
+      return {
+        oldStart: parseInt(match[1], 10),
+        newStart: parseInt(match[2], 10)
+      };
+    }
+    return { oldStart: 1, newStart: 1 };
+  };
+
+  // ✅ Enhanced diff rendering with REAL line numbers
+  const renderDiffWithContext = () => {
     if (!suggestion.diff) return null;
 
     const lines = suggestion.diff.split('\n');
     
-    console.log("📊 Diff lines count:", lines.length); // ✅ Debug log
-    console.log("📄 First 5 lines:", lines.slice(0, 5)); // ✅ Check if context exists
+    // Track line numbers intelligently (will be set when we parse @@ header)
+    let oldLineNum = 0;
+    let newLineNum = 0;
+    let headerParsed = false;
+    
+    console.log("📊 Diff lines count:", lines.length);
+    console.log("📄 Full diff:", suggestion.diff);
     
     return (
       <Box mt={4}>
@@ -96,6 +114,8 @@ export function ReviewSuggestionCard({
             let showLineNumber = true;
             let linePrefix = '';
             let icon = null;
+            let oldNum = null;
+            let newNum = null;
 
             // File headers (--- a/file, +++ b/file)
             if (line.startsWith('---') || line.startsWith('+++')) {
@@ -110,29 +130,48 @@ export function ReviewSuggestionCard({
               textColor = 'blue.800';
               showLineNumber = false;
               icon = '📍';
+              
+              // ✅ Parse header to get starting line numbers
+              if (!headerParsed) {
+                const { oldStart, newStart } = parseDiffHeader(line);
+                oldLineNum = oldStart;
+                newLineNum = newStart;
+                headerParsed = true;
+                console.log(`📍 Parsed diff header: old=${oldStart}, new=${newStart}`);
+              }
             }
-            // Added lines (green)
+            // Added lines (show only NEW line number)
             else if (line.startsWith('+') && !line.startsWith('+++')) {
               bgColor = 'green.50';
               textColor = 'green.900';
               lineNumberBg = 'green.200';
               linePrefix = '+';
               icon = '✅';
+              oldNum = null; // No old line number (this line was added)
+              newNum = newLineNum;
+              newLineNum++; // Increment only new line counter
             }
-            // Deleted lines (red)
+            // Deleted lines (show only OLD line number)
             else if (line.startsWith('-') && !line.startsWith('---')) {
               bgColor = 'red.50';
               textColor = 'red.900';
               lineNumberBg = 'red.200';
               linePrefix = '−';
               icon = '❌';
+              oldNum = oldLineNum;
+              newNum = null; // No new line number (this line was removed)
+              oldLineNum++; // Increment only old line counter
             }
-            // ✅ Context lines (unchanged - these should show up!)
+            // Context lines (show BOTH line numbers - unchanged)
             else if (line.startsWith(' ')) {
               bgColor = 'white';
               textColor = 'gray.700';
               linePrefix = ' ';
-              icon = '⋮';  // Vertical ellipsis for context
+              icon = '⋮';
+              oldNum = oldLineNum;
+              newNum = newLineNum;
+              oldLineNum++; // Increment both counters
+              newLineNum++;
             }
             else {
               showLineNumber = false;
@@ -152,30 +191,36 @@ export function ReviewSuggestionCard({
                 _hover={{ bg: bgColor !== 'white' ? bgColor : 'gray.50' }}
                 transition="background 0.15s"
               >
-                {/* Icon indicator */}
-                {icon && (
+                {/* ✅ OLD line number (left side) */}
+                {showLineNumber && (
                   <Box
+                    bg={oldNum ? lineNumberBg : 'gray.200'}
                     px={2}
                     py={1}
-                    fontSize="10px"
-                    color="gray.500"
-                    display="flex"
-                    alignItems="center"
+                    minW="45px"
+                    textAlign="right"
+                    color={oldNum ? 'gray.600' : 'gray.400'}
+                    fontSize="11px"
+                    borderRight="1px solid"
+                    borderColor="gray.300"
+                    fontWeight="semibold"
+                    userSelect="none"
+                    fontFamily="monospace"
                   >
-                    {icon}
+                    {oldNum || ''}
                   </Box>
                 )}
 
-                {/* Line prefix (+, -, space) */}
+                {/* ✅ NEW line number (right side) */}
                 {showLineNumber && (
                   <Box
-                    bg={lineNumberBg}
-                    px={3}
+                    bg={newNum ? lineNumberBg : 'gray.200'}
+                    px={2}
                     py={1}
-                    minW="50px"
-                    textAlign="center"
-                    color="gray.600"
-                    fontSize="12px"
+                    minW="45px"
+                    textAlign="right"
+                    color={newNum ? 'gray.600' : 'gray.400'}
+                    fontSize="11px"
                     borderRight="2px solid"
                     borderColor={
                       linePrefix === '+' ? 'green.300' : 
@@ -184,8 +229,9 @@ export function ReviewSuggestionCard({
                     }
                     fontWeight="semibold"
                     userSelect="none"
+                    fontFamily="monospace"
                   >
-                    {linePrefix}
+                    {newNum || ''}
                   </Box>
                 )}
 
@@ -204,6 +250,20 @@ export function ReviewSuggestionCard({
                 >
                   {displayLine}
                 </Code>
+
+                {/* Icon indicator (moved to right) */}
+                {icon && (
+                  <Box
+                    px={2}
+                    py={1}
+                    fontSize="10px"
+                    color="gray.500"
+                    display="flex"
+                    alignItems="center"
+                  >
+                    {icon}
+                  </Box>
+                )}
               </Flex>
             );
           })}
@@ -213,15 +273,15 @@ export function ReviewSuggestionCard({
         <HStack spacing={4} mt={2} fontSize="xs" color="gray.600">
           <HStack spacing={1}>
             <Box w="12px" h="12px" bg="green.100" borderRadius="sm" />
-            <Text>Added</Text>
+            <Text>Added lines (new line #)</Text>
           </HStack>
           <HStack spacing={1}>
             <Box w="12px" h="12px" bg="red.100" borderRadius="sm" />
-            <Text>Removed</Text>
+            <Text>Removed lines (old line #)</Text>
           </HStack>
           <HStack spacing={1}>
             <Box w="12px" h="12px" bg="white" border="1px solid" borderColor="gray.300" borderRadius="sm" />
-            <Text>Context (unchanged)</Text>
+            <Text>Context (both line #s)</Text>
           </HStack>
         </HStack>
       </Box>

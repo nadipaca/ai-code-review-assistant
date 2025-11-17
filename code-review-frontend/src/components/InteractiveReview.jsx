@@ -86,7 +86,7 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
     <Box w="100%" maxW="1200px" mx="auto" p={4} bg="white" borderRadius="md" boxShadow="lg">
       {/* Progress Header */}
  <VStack align="stretch" spacing={4}>
-        {visibleSuggestions.map((suggestion, idx) => {
+        {visibleSuggestions.map((suggestion) => {
           const actualIndex = allSuggestions.indexOf(suggestion);
           const isLoading = loadingDiff.has(actualIndex);
           
