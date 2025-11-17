@@ -110,29 +110,19 @@ class PRCreator:
             response = await client.put(url, json=payload, headers=self.base_headers)
             response.raise_for_status()
             return response.json()
-
+    
     async def create_review_pr_with_changes(
         self,
         owner: str,
         repo: str,
         base_branch: Optional[str] = None,
+        branch_name: Optional[str] = None,  # ✅ Add parameter
         approved_changes: List[Dict] = None,
         title: Optional[str] = None,
         body: Optional[str] = None
     ) -> dict:
         """
         Create a PR with actual code changes based on approved suggestions.
-        
-        approved_changes format:
-        [
-            {
-                "file": "path/to/file.js",
-                "original_content": "...",  # Original file content
-                "modified_content": "...",  # Content with AI changes applied
-                "suggestion": "AI suggestion text"
-            },
-            ...
-        ]
         """
         try:
             if not approved_changes or len(approved_changes) == 0:
@@ -142,9 +132,13 @@ class PRCreator:
                 base_branch = await self._get_default_branch(owner, repo)
                 logging.info(f"Using default branch: {base_branch}")
             
-            import time
-            timestamp = int(time.time())
-            review_branch = f"ai-review-{timestamp}"
+            # ✅ Use provided branch_name or generate one
+            if not branch_name:
+                import time
+                timestamp = int(time.time())
+                review_branch = f"ai-review-{timestamp}"
+            else:
+                review_branch = branch_name
             
             latest_sha = await self._get_latest_commit_sha(owner, repo, base_branch)
             logging.info(f"Latest SHA for {base_branch}: {latest_sha}")
@@ -175,7 +169,7 @@ class PRCreator:
                     logging.info(f"Committed changes to {file_path}")
                 except Exception as e:
                     logging.error(f"Failed to commit {file_path}: {e}")
-                    # Continue with other files
+                    continue
             
             if commit_count == 0:
                 raise ValueError("Failed to commit any changes")
@@ -194,7 +188,7 @@ class PRCreator:
                 "body": body,
                 "head": review_branch,
                 "base": base_branch,
-                "draft": False  # Not a draft since changes are reviewed
+                "draft": False
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -211,7 +205,7 @@ class PRCreator:
         except Exception as e:
             logging.error(f"Unexpected error in create_review_pr_with_changes: {str(e)}")
             raise
-
+    
     def _format_pr_body(self, approved_changes: List[Dict]) -> str:
         """Format approved changes as PR description"""
         parts = ["# 🤖 AI Code Review - Approved Changes\n"]
