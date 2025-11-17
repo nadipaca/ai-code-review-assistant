@@ -81,20 +81,27 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
     }
     onComplete(approvedChanges, branchName);
   };
-
-  const progressPercent = (rejectedSuggestions.size / allSuggestions.length) * 100;
   
   return (
     <Box w="100%" maxW="1200px" mx="auto" p={4} bg="white" borderRadius="md" boxShadow="lg">
       {/* Progress Header */}
-      <VStack align="stretch" spacing={4} mb={6}>
-        <Heading size="md" color="gray.800">
-          Code Review - {approvedChanges.length} approved, {rejectedSuggestions.size - approvedChanges.length} dismissed
-        </Heading>
-        <Progress value={progressPercent} colorScheme="green" />
-        <Text fontSize="sm" color="gray.700">
-          {visibleSuggestions.length} suggestion(s) remaining
-        </Text>
+ <VStack align="stretch" spacing={4}>
+        {visibleSuggestions.map((suggestion, idx) => {
+          const actualIndex = allSuggestions.indexOf(suggestion);
+          const isLoading = loadingDiff.has(actualIndex);
+          
+          return (
+            <ReviewSuggestionCard
+              key={actualIndex}
+              suggestion={suggestion}
+              onApprove={(s) => handleApprove(s, actualIndex)}
+              onReject={(s) => handleReject(s, actualIndex)}
+              isLoading={isLoading}
+              owner={owner}  // ✅ Pass owner
+              repo={repo}    // ✅ Pass repo
+            />
+          );
+        })}
       </VStack>
   
       {/* Suggestions List */}

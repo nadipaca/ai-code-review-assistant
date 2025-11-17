@@ -14,75 +14,80 @@ logging.basicConfig(
 
 def parse_individual_issues(llm_response: str, original_code: str, file_path: str) -> list:
     """
-    Parse LLM response into individual issues with diffs.
+    Parse LLM response and generate individual issues with proper diffs including context.
     Each issue contains: comment, diff, highlighted_lines
     """
     issues = []
     
     # Split by horizontal rules or numbered issues
     sections = re.split(r'\n---\n|\n\d+\.\s+', llm_response)
-    
-    for section in sections:
-        if not section.strip() or len(section) < 50:
+        
+    for section in sections[1:]:  # Skip first empty section
+        if not section.strip():
             continue
-            
+        
         # Extract severity
-        severity_match = re.search(r'\*\*Severity:\*\*\s*🔴\s*HIGH|\*\*Severity:\*\*\s*🟠\s*MEDIUM', section)
-        severity = "HIGH" if "🔴" in section or "HIGH" in section else "MEDIUM"
+        severity_match = re.search(r'\*\*(HIGH|MEDIUM|LOW)\*\*', llm_response)
+        severity = severity_match.group(1) if severity_match else "MEDIUM"
         
-        # Extract issue description (Issue + Impact)
-        issue_match = re.search(r'\*\*Issue:\*\*\s*([^\*]+)', section)
-        impact_match = re.search(r'\*\*Impact:\*\*\s*([^\*]+)', section)
+        # Extract comment/description
+        comment_match = re.search(r'\*\*Issue:\*\*\s*([^\n*]+)', section)
+        comment = comment_match.group(1).strip() if comment_match else section.strip()[:200]
         
-        comment_parts = []
-        if issue_match:
-            comment_parts.append(issue_match.group(1).strip())
-        if impact_match:
-            comment_parts.append(f"Impact: {impact_match.group(1).strip()}")
+        # Extract line numbers
+        line_numbers = []
+        for match in re.finditer(r'(?:Line|Lines)\s+(\d+)(?:-(\d+))?', section):
+            if match.group(2):
+                line_numbers.extend(range(int(match.group(1)), int(match.group(2)) + 1))
+            else:
+                line_numbers.append(int(match.group(1)))
         
-        comment = " ".join(comment_parts) if comment_parts else section[:200]
+        # Extract fixed code
+        code_blocks = re.findall(r'```[\w]*\n(.*?)\n```', section, re.DOTALL)
+        fixed_code = code_blocks[0].strip() if code_blocks else ""
         
-        # Extract code block (the fix)
-        code_block_match = re.search(r'```[\w]*\n([\s\S]*?)\n```', section)
-        
-        if code_block_match:
-            fixed_code = code_block_match.group(1).strip()
+        # ✅ Generate diff with CONTEXT LINES
+        diff = ""
+        if line_numbers and fixed_code:
+            original_lines = original_code.split('\n')
             
-            # Extract line numbers mentioned in the issue
-            line_numbers = []
-            for match in re.finditer(r'[Ll]ine[s]?\s+(\d+)(?:-(\d+))?', section):
-                if match.group(2):
-                    line_numbers.extend(range(int(match.group(1)), int(match.group(2)) + 1))
-                else:
-                    line_numbers.append(int(match.group(1)))
+            # ✅ Include context: 5 lines before and after
+            context_before = 5
+            context_after = 5
             
-            # Generate diff
-            diff = ""
-            if line_numbers and fixed_code:
-                # Extract the relevant lines from original code
-                original_lines = original_code.split('\n')
-                start_line = max(0, min(line_numbers) - 1)
-                end_line = min(len(original_lines), max(line_numbers))
-                
-                original_snippet = '\n'.join(original_lines[start_line:end_line])
-                
-                # Generate unified diff
-                diff_lines = list(difflib.unified_diff(
-                    original_snippet.splitlines(keepends=True),
-                    fixed_code.splitlines(keepends=True),
-                    fromfile=f"a/{file_path}",
-                    tofile=f"b/{file_path}",
-                    lineterm=''
-                ))
-                diff = ''.join(diff_lines)
+            start_line = max(0, min(line_numbers) - context_before - 1)
+            end_line = min(len(original_lines), max(line_numbers) + context_after)
             
-            issues.append({
-                "comment": comment,
-                "diff": diff,
-                "highlighted_lines": line_numbers[:10] if line_numbers else [],
-                "severity": severity,
-                "has_code_block": True
-            })
+            # Extract original snippet with context
+            original_snippet = '\n'.join(original_lines[start_line:end_line])
+            
+            # Create modified snippet (replace changed lines, keep context)
+            modified_lines = original_lines.copy()
+            change_start = min(line_numbers) - 1
+            change_end = max(line_numbers)
+            
+            # Replace the changed section
+            modified_lines[change_start:change_end] = fixed_code.split('\n')
+            modified_snippet = '\n'.join(modified_lines[start_line:start_line + len(original_snippet.split('\n'))])
+            
+            # Generate unified diff
+            diff_lines = list(difflib.unified_diff(
+                original_snippet.splitlines(keepends=True),
+                modified_snippet.splitlines(keepends=True),
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+                lineterm='',
+                n=5  # ✅ 5 context lines
+            ))
+            diff = ''.join(diff_lines)
+        
+        issues.append({
+            "comment": comment,
+            "diff": diff,
+            "highlighted_lines": line_numbers[:10] if line_numbers else [],
+            "severity": severity,
+            "has_code_block": True
+        })
     
     return issues if issues else []
 

@@ -122,8 +122,19 @@ class CodeApplier:
         return '\n'.join(new_lines)
     
     @staticmethod
-    def generate_diff(original: str, modified: str, filename: str = "file") -> str:
-        """Generate unified diff between original and modified content"""
+    def generate_diff(original: str, modified: str, filename: str = "file", context_lines: int = 3) -> str:
+        """
+        Generate unified diff between original and modified content with context lines.
+        
+        Args:
+            original: Original file content
+            modified: Modified file content
+            filename: File name for diff headers
+            context_lines: Number of unchanged lines to show around changes (default: 3)
+        
+        Returns:
+            Unified diff string with context
+        """
         original_lines = original.splitlines(keepends=True)
         modified_lines = modified.splitlines(keepends=True)
         
@@ -132,7 +143,8 @@ class CodeApplier:
             modified_lines,
             fromfile=f"a/{filename}",
             tofile=f"b/{filename}",
-            lineterm=''
+            lineterm='',
+            n=context_lines
         )
         
         return ''.join(diff)
@@ -218,7 +230,12 @@ class CodeApplier:
                 }
             
             # Generate diff
-            diff = CodeApplier.generate_diff(original_code, modified_code, file_path)
+            diff = CodeApplier.generate_diff(
+                original_code, 
+                modified_code, 
+                file_path,
+                context_lines=5 
+            )
             
             return {
                 "modified_code": modified_code,
