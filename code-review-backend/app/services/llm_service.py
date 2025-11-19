@@ -18,109 +18,41 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
     Each issue contains: comment, diff, highlighted_lines
     """
     issues = []
-    
-    # Split by horizontal rules or numbered issues
-    sections = re.split(r'\n---\n|\n\d+\.\s+', llm_response)
-        
-    for section in sections[1:]:  # Skip first empty section
-        if not section.strip():
-            continue
-        
-        # Extract severity
-        severity_match = re.search(r'\*\*(HIGH|MEDIUM|LOW)\*\*', llm_response)
-        severity = severity_match.group(1) if severity_match else "MEDIUM"
-        
-        # Extract comment/description
-        comment_match = re.search(r'\*\*Issue:\*\*\s*([^\n*]+)', section)
-        comment = comment_match.group(1).strip() if comment_match else section.strip()[:200]
-        
-        # Extract line numbers
-        line_numbers = []
-        for match in re.finditer(r'(?:Line|Lines)\s+(\d+)(?:-(\d+))?', section):
-            if match.group(2):
-                line_numbers.extend(range(int(match.group(1)), int(match.group(2)) + 1))
-            else:
-                line_numbers.append(int(match.group(1)))
-        
-        # Extract fixed code
-        code_blocks = re.findall(r'```[\w]*\n(.*?)\n```', section, re.DOTALL)
-        fixed_code = code_blocks[0].strip() if code_blocks else ""
-        
-        # ✅ Generate diff with CONTEXT LINES and CORRECT line numbers
-        diff = ""
-        if line_numbers and fixed_code:
-            original_lines = original_code.split('\n')
-            
-            # ✅ Include context: 3 lines before and after
-            context_before = 3
-            context_after = 3
-            
-            change_start_line = min(line_numbers)
-            change_end_line = max(line_numbers)
-            
-            # Calculate context window (0-indexed)
-            start_idx = max(0, change_start_line - context_before - 1)
-            end_idx = min(len(original_lines), change_end_line + context_after)
-            
-            # Extract original snippet with context
-            original_snippet_lines = original_lines[start_idx:end_idx]
-            original_snippet = '\n'.join(original_snippet_lines)
-            
-            # Create modified snippet (replace changed lines, keep context)
-            modified_lines = original_lines.copy()
-            change_start_idx = change_start_line - 1  # 0-indexed
-            change_end_idx = change_end_line  # Exclusive end
-            
-            # Replace the changed section
-            fixed_code_lines = fixed_code.split('\n')
-            modified_lines[change_start_idx:change_end_idx] = fixed_code_lines
-            
-            # Extract same context window from modified version
-            # Adjust end_idx if we added/removed lines
-            lines_diff = len(fixed_code_lines) - (change_end_idx - change_start_idx)
-            modified_end_idx = end_idx + lines_diff
-            modified_snippet_lines = modified_lines[start_idx:modified_end_idx]
-            modified_snippet = '\n'.join(modified_snippet_lines)
-            
-            # ✅ Generate unified diff with ACTUAL line numbers from file
+    # Use regex to extract issues in the expected format
+    for match in re.finditer(
+        r"Code:\s*```[a-zA-Z]*\n(.*?)```[\s\S]*?Issue:\s*(.*?)\n+Fix:\s*(.*?)(?=(?:\n+Code:|$))",
+        llm_response, re.DOTALL
+    ):
+        code_snippet, issue_text, fix_text = match.groups()
+        # Find line numbers by searching for the code_snippet in original_code
+        highlighted_lines = []
+        if code_snippet.strip():
+            orig_lines = original_code.split('\n')
+            snippet_lines = code_snippet.strip().split('\n')
+            for i in range(len(orig_lines) - len(snippet_lines) + 1):
+                if orig_lines[i:i+len(snippet_lines)] == snippet_lines:
+                    highlighted_lines = list(range(i+1, i+1+len(snippet_lines)))
+                    break
+        # Generate diff using difflib
+        diff = ''
+        if code_snippet.strip() and fix_text.strip():
             diff_lines = list(difflib.unified_diff(
-                original_snippet.splitlines(keepends=True),
-                modified_snippet.splitlines(keepends=True),
+                code_snippet.strip().splitlines(),
+                fix_text.strip().splitlines(),
                 fromfile=f"a/{file_path}",
                 tofile=f"b/{file_path}",
-                fromfiledate='',
-                tofiledate='',
                 lineterm='',
-                n=context_before  # Context lines
+                n=3
             ))
-            
-            # ✅ Fix the diff header to show correct line numbers
-            # difflib uses 1-indexed line numbers by default, but we need to adjust
-            # because we're passing a snippet, not the full file
-            if diff_lines and diff_lines[0].startswith('---'):
-                # The @@ line is typically at index 2
-                for i, line in enumerate(diff_lines):
-                    if line.startswith('@@'):
-                        # Replace with actual file line numbers
-                        old_count = len(original_snippet_lines)
-                        new_count = len(modified_snippet_lines)
-                        # start_idx is 0-based, diff headers are 1-based
-                        actual_old_start = start_idx + 1
-                        actual_new_start = start_idx + 1
-                        diff_lines[i] = f"@@ -{actual_old_start},{old_count} +{actual_new_start},{new_count} @@\n"
-                        break
-            
-            diff = ''.join(diff_lines)
-        
+            diff = '\n'.join(diff_lines)
         issues.append({
-            "comment": comment,
+            "comment": f"Code:\n```{code_snippet}```\nIssue:\n{issue_text}\nFix:\n{fix_text}",
             "diff": diff,
-            "highlighted_lines": line_numbers[:10] if line_numbers else [],
-            "severity": severity,
+            "highlighted_lines": highlighted_lines,
+            "severity": "MEDIUM",  # or parse from LLM output
             "has_code_block": True
         })
-    
-    return issues if issues else []
+    return issues
 
 def extract_line_numbers(content: str, base_line: int) -> list:
     """Extract line numbers from AI response"""
@@ -140,7 +72,6 @@ def extract_line_numbers(content: str, base_line: int) -> list:
                 lines.extend(range(start, end + 1))
     return lines if lines else None
 
-
 async def review_code_chunk_with_context(
     chunk: str,
     language: str,
@@ -150,82 +81,41 @@ async def review_code_chunk_with_context(
     full_file_content: str
 ) -> dict:
     """Review code with intelligent severity filtering and context awareness."""
-    
-    # Detect if this is a test file with intentional vulnerabilities
-    is_test_file = any(marker in file_path.lower() for marker in ['test-repo/', '/test/', 'test.py', 'test.js', 'test.ts', 'userservice.java'])
-    
-    logging.info(f"{'='*80}")
-    logging.info(f"🔍 REVIEWING: {file_path}")
-    logging.info(f"📁 Is test file: {is_test_file}")
-    logging.info(f"📝 Language: {language}")
-    logging.info(f"📏 Chunk length: {len(chunk)} chars")
-    logging.info(f"🔢 Starting at line: {start_line}")
-    
-    if is_test_file:
-        prompt = (
-            f"You are an expert {language} security auditor analyzing **{file_path}**.\n\n"
-            f"**IMPORTANT:** This appears to be a TEST FILE with intentional vulnerabilities for demonstration.\n"
-            f"**Your task:** Identify ALL security vulnerabilities, even if they appear intentional.\n\n"
-            f"**RULES:**\n"
-            f"1. **Report ALL security vulnerabilities** (SQL injection, XSS, hardcoded secrets, etc.)\n"
-            f"2. **Severity levels:**\n"
-            f"   - 🔴 **HIGH**: SQL injection, XSS, command injection, hardcoded credentials, `eval()`, unsafe deserialization\n"
-            f"   - 🟠 **MEDIUM**: Missing input validation, weak hashing (MD5/SHA1), race conditions, path traversal\n"
-            f"3. **DO NOT skip issues** because they seem intentional\n"
-            f"4. **BE AGGRESSIVE** - if you see a vulnerability, report it\n\n"
-            f"**Code to Review (Lines {start_line}+):**\n"
-            f"```{language}\n{chunk}\n```\n\n"
-            f"**Response Format (ALWAYS provide at least one finding if vulnerabilities exist):**\n"
-            f"**Severity:** [HIGH/MEDIUM]\n"
-            f"**Issue:** [Specific vulnerability type with line reference]\n"
-            f"**Impact:** [Security risk with exploit example]\n"
-            f"**Fix:** [Secure code replacement]\n"
-            f"```{language}\n"
-            f"// Fixed code here\n"
-            f"```\n"
-        )
-    else:
-        prompt = (
-            f"You are an expert {language} code reviewer analyzing **{file_path}**.\n\n"
-            f"{project_context}\n\n"
-            f"**CRITICAL RULES:**\n"
-            f"1. **NEVER suggest removing imports or breaking existing functionality**\n"
-            f"2. **Check if the issue is already handled** - don't suggest redundant fixes\n"
-            f"3. **Understand helper functions** - review the full file context before suggesting changes\n"
-            f"4. **DO NOT suggest removing code** unless it's a clear bug or security vulnerability\n"
-            f"5. **DO NOT suggest style changes** (formatting, naming, comments)\n"
-            f"6. **ONLY report MEDIUM/HIGH severity issues:**\n"
-            f"   - 🔴 **HIGH**: Unhandled security vulnerabilities, SQL injection, XSS, data exposure\n"
-            f"   - 🟠 **MEDIUM**: Input validation gaps, race conditions, unvalidated user input\n"
-            f"7. **If code has proper error handling**: Respond with 'No issues found'\n"
-            f"8. **Preserve existing functionality** - only suggest ADDITIONS, never DELETIONS of working code\n"
-            f"9. **Verify the issue exists** - check if error handling is already present elsewhere\n\n"
-            f"**Full File Context:**\n"
-            f"```{language}\n{full_file_content[:1200]}```\n\n"
-            f"**Code Chunk to Review (Lines {start_line}+):**\n"
-            f"```{language}\n{chunk}\n```\n\n"
-            f"**Response Format (only for REAL MEDIUM/HIGH severity issues):**\n"
-            f"**Severity:** [HIGH/MEDIUM]\n"
-            f"**Issue:** [What's wrong - be specific and verify it's not already handled]\n"
-            f"**Impact:** [Concrete security/stability risk with example exploit]\n"
-            f"**Fix:** [PRECISE code to ADD - never remove imports or break modules]\n"
-            f"```{language}\n"
-            f"// Show ONLY the lines to change with minimal context\n"
-            f"// DO NOT remove imports or module-level code\n"
-            f"```\n"
-        )
+
+    # Determine if the file is a test file by common patterns
+    test_file_patterns = [
+        '/test/', '/tests/', '/__tests__/', '/spec/', '/__mocks__/', '/mock/', '/mocks/',
+        'test_', '_test.', '.spec.', '.test.', 'tests.py', 'test.js', 'test.ts', 'test.java', 'test.jsx', 'test.tsx'
+    ]
+    is_test_file = any(pat in file_path.lower() for pat in test_file_patterns)
+
+    prompt = f"""
+You are a senior code reviewer. For each MEDIUM or HIGH severity issue you find, repeat the following format:
+
+1. Code:
+```{language}
+<the relevant code snippet>
+```
+Issue:
+<clear, simple explanation of the issue>
+
+Fix:
+<clear, actionable fix, with code example if possible>
+
+Only output this format for each issue you find. If no issues, say "No issues found."
+"""
 
     resp = await client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": prompt.replace('<the relevant code snippet>', chunk)}],
         max_tokens=1500,
         temperature=0.1,
     )
 
     content = resp.choices[0].message.content
-    
+
     logging.info(f"📥 RAW LLM RESPONSE ({len(content)} chars)")
-    
+
     # Only apply false positive filtering for NON-test files
     if not is_test_file:
         false_positive_patterns = [
@@ -237,7 +127,6 @@ async def review_code_chunk_with_context(
             "looks good",
             "properly handled"
         ]
-        
         if any(pattern in content.lower() for pattern in false_positive_patterns):
             logging.info(f"❌ FILTERED OUT: False positive detected")
             return {
@@ -246,13 +135,13 @@ async def review_code_chunk_with_context(
                 "has_code_block": False,
                 "severity": None
             }
-    
+
     severity = None
     if "**Severity:** HIGH" in content or "🔴" in content:
         severity = "HIGH"
     elif "**Severity:** MEDIUM" in content or "🟠" in content:
         severity = "MEDIUM"
-    
+
     # For test files, be less strict about severity
     if is_test_file:
         if not severity and ("vulnerability" in content.lower() or "security" in content.lower()):
@@ -267,17 +156,17 @@ async def review_code_chunk_with_context(
                 "has_code_block": False,
                 "severity": None
             }
-    
+
     lines = extract_line_numbers(content, start_line)
-    
+
     result = {
         "comment": content,
         "lines": lines if lines else None,
         "has_code_block": "```" in content,
         "severity": severity
     }
-    
+
     logging.info(f"✅ RESULT: Severity={severity}, Lines={lines}, HasCode={'```' in content}")
     logging.info(f"{'='*80}\n")
-    
+
     return result
