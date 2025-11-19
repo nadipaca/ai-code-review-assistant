@@ -99,7 +99,7 @@ export function FileBrowser({ owner, repo, path, onSelectFile, selectedFiles, br
                     onClick={() => handleFolderClick(folder)}
                     colorScheme="blue"
                     variant="outline"
-                    _hover={{ bg: 'blue.700' }}
+                    _hover={{ bg: 'blue.700', color: 'white' }}
                   >
                     {folder.name}
                   </Button>

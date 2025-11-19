@@ -97,6 +97,15 @@ function App() {
       })();
     }, []);
 
+    useEffect(() => {
+      if (!isAuthenticated) {
+        const isLoginPage = window.location.pathname === '/' || window.location.pathname === '/login';
+        if (!isLoginPage) {
+          window.location.href = '/';
+        }
+      }
+    }, [isAuthenticated]);
+
     function handleRepoSelect(repo) {
       setSelectedRepo(repo);
       setBreadcrumbs([]);
