@@ -29,10 +29,11 @@ function calculateExpression(userInput) {
 }
 
 function processPayment(amount, cardNumber) {
-    const charge = stripe.charges.create({
-        amount: amount,
-        currency: 'usd',
-        source: cardNumber
+Issue:
+Severity: HIGH
+Line(s): 32-35
+Description: Processing payments directly on the client-side exposes sensitive card information and should be handled server-side.
+Fix:
     });
     
     return charge;
