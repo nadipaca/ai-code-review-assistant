@@ -25,15 +25,18 @@ async function deleteUser(id) {
 
 
 function calculateExpression(userInput) {
-    return eval(userInput);
+Issue:
+Severity: HIGH
+Line(s): 28
+Description: Using `eval()` to execute user input can lead to code injection vulnerabilities.
+Fix:
 }
 
 function processPayment(amount, cardNumber) {
-Issue:
-Severity: HIGH
-Line(s): 32-35
-Description: Processing payments directly on the client-side exposes sensitive card information and should be handled server-side.
-Fix:
+    const charge = stripe.charges.create({
+        amount: amount,
+        currency: 'usd',
+        source: cardNumber
     });
     
     return charge;
