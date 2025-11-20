@@ -81,10 +81,11 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
     issues: List[dict] = []
     orig_lines = original_code.splitlines()
 
-    # More robust regex that tolerates extra text between sections
+    # More robust regex that tolerates extra text between sections and optional "Code:" prefix
+    # The lookahead checks for the START of the next issue (Code block followed closely by "Issue:")
     pattern = re.compile(
-        r"Code:\s*```[a-zA-Z0-9_+\-]*\n(.*?)```"
-        r"[\s\S]*?Issue:\s*(.*?)\n+Fix:\s*(.*?)(?=(?:\n+Code:|$))",
+        r"(?:Code:\s*)?```[a-zA-Z0-9_+\-]*\n(.*?)```"
+        r"[\s\S]*?Issue:\s*(.*?)\n+Fix:\s*(.*?)(?=\n+(?:Code:\s*)?```[a-zA-Z0-9_+\-]*\n.*?```\s*Issue:|$)",
         re.DOTALL | re.IGNORECASE,
     )
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, VStack, Heading, Progress, Text, Button, HStack, Input, FormControl, FormLabel } from '@chakra-ui/react';
-import ReviewSuggestionCard from './ReviewSuggestionCard';
+import FileReview from './FileReview';
 import { applySuggestion } from '../services/api';
 
 export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, repo }) {
@@ -9,69 +9,65 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
   const [branchName, setBranchName] = useState(`ai-review-${Date.now()}`);
   const [loadingDiff, setLoadingDiff] = useState(new Set());
 
-  // Flatten all suggestions into a single array
-  const allSuggestions = React.useMemo(() => {
-    if (!reviewResults?.review) return [];
-    
-    return reviewResults.review.flatMap(file => 
-      // ✅ Use "results" to match backend
-      (file.results || []).map(result => ({
-        ...result,
-        file: file.file,
-        owner,
-        repo
-      }))
-    );
-  }, [reviewResults, owner, repo]);
+  // Calculate total suggestions for progress tracking
+  const totalSuggestions = React.useMemo(() => {
+    if (!reviewResults?.review) return 0;
+    return reviewResults.review.reduce((acc, file) => acc + (file.results?.length || 0), 0);
+  }, [reviewResults]);
 
-  const visibleSuggestions = allSuggestions.filter((_, idx) => 
-    !rejectedSuggestions.has(idx)
-  );
+  const handledCount = approvedChanges.length + rejectedSuggestions.size;
+  const progress = totalSuggestions === 0 ? 100 : (handledCount / totalSuggestions) * 100;
 
-  // Enhanced approve handler that fetches diff
-  const handleApprove = async (suggestion, index) => {
-    setLoadingDiff(new Set([...loadingDiff, index]));
-    
+  // Enhanced approve handler
+  const handleApprove = async (suggestion, fileRef) => {
+    // Generate a unique ID for the suggestion to track loading state
+    const suggestionId = `${fileRef.file}-${suggestion.highlighted_lines?.[0]}`;
+    setLoadingDiff(new Set([...loadingDiff, suggestionId]));
+
     try {
-      // Fetch the diff from backend
+      // Apply the suggestion to get the final modified content
+      // We use the backend to ensure the patch applies cleanly
       const result = await applySuggestion(
-        suggestion.owner,
-        suggestion.repo,
-        suggestion.file,
+        owner,
+        repo,
+        fileRef.file,
         suggestion.suggestion || suggestion.comment,
         suggestion.highlighted_lines?.[0] || 1,
         suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1]
       );
 
       setApprovedChanges([...approvedChanges, {
-        file: suggestion.file,
+        file: fileRef.file,
         original_content: result.original_content || "",
         modified_content: result.modified_code || "",
         suggestion: suggestion.suggestion || suggestion.comment || "Code improvement",
-        diff: result.diff || "",  // ✅ Include diff
+        diff: result.diff || suggestion.diff || "",
         line_start: suggestion.highlighted_lines?.[0],
         line_end: suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1]
       }]);
-      
-      setRejectedSuggestions(new Set([...rejectedSuggestions, index]));
+
+      // Mark as handled (using the suggestion object reference or ID)
+      // Since we don't have IDs, we'll use the suggestion object itself in a Set? 
+      // Or just add to rejectedSuggestions (which is used for hiding)?
+      // Actually, for "Approved", we usually hide it too, or show it as "Approved".
+      // Let's add to rejectedSuggestions to hide it from the active list, 
+      // but we might want to show a "Approved" state in the UI.
+      // For now, let's just hide it to clear the list.
+      setRejectedSuggestions(new Set([...rejectedSuggestions, suggestion]));
     } catch (error) {
       console.error('Failed to apply suggestion:', error);
-      alert('Failed to generate diff: ' + (error.message || 'Unknown error'));
+      alert('Failed to apply suggestion: ' + (error.message || 'Unknown error'));
     } finally {
       setLoadingDiff((prev) => {
         const next = new Set(prev);
-        next.delete(index);
+        next.delete(suggestionId);
         return next;
       });
     }
   };
 
-  const handleReject = (_, index) => {
-    setRejectedSuggestions(new Set([...rejectedSuggestions, index]));
-  };
-
-  const handleEditSuggestion = (updatedSuggestion) => {
-    console.log('Edit suggestion:', updatedSuggestion);
+  const handleReject = (suggestion) => {
+    setRejectedSuggestions(new Set([...rejectedSuggestions, suggestion]));
   };
 
   const handleFinalize = () => {
@@ -81,73 +77,69 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
     }
     onComplete(approvedChanges, branchName);
   };
-  
+
   return (
-    <Box w="100%" maxW="1200px" mx="auto" p={4} bg="white" borderRadius="md" boxShadow="lg">
-      {/* Progress Header */}
- <VStack align="stretch" spacing={4}>
-        {visibleSuggestions.map((suggestion) => {
-          const actualIndex = allSuggestions.indexOf(suggestion);
-          const isLoading = loadingDiff.has(actualIndex);
-          
-          return (
-            <ReviewSuggestionCard
-              key={actualIndex}
-              suggestion={suggestion}
-              onApprove={(s) => handleApprove(s, actualIndex)}
-              onReject={(s) => handleReject(s, actualIndex)}
-              isLoading={isLoading}
-              owner={owner}  // ✅ Pass owner
-              repo={repo}    // ✅ Pass repo
-            />
-          );
-        })}
-      </VStack>
-  
-      {/* Suggestions List */}
-      <VStack align="stretch" spacing={4}>
-        {visibleSuggestions.map((suggestion) => {
-          const actualIndex = allSuggestions.indexOf(suggestion);
-          const isLoading = loadingDiff.has(actualIndex);
-          
-          return (
-            <ReviewSuggestionCard
-              key={actualIndex}
-              suggestion={suggestion}
-              onApprove={(s) => handleApprove(s, actualIndex)}
-              onReject={(s) => handleReject(s, actualIndex)}
-              onEdit={handleEditSuggestion}
-              isLoading={isLoading}
-            />
-          );
-        })}
-      </VStack>
-  
-      {/* Final Actions */}
-      {visibleSuggestions.length === 0 && (
-        <Box mt={6} p={4} bg="green.50" borderRadius="md">
-          <VStack align="stretch" spacing={4}>
-            <Text color="gray.800" textAlign="center" fontWeight="bold">
-              All suggestions reviewed! Ready to create PR.
+    <Box w="100%" maxW="1400px" mx="auto" p={4}>
+      {/* Header & Progress */}
+      <Box mb={6} bg="white" p={4} borderRadius="md" boxShadow="sm">
+        <VStack align="stretch" spacing={4}>
+          <HStack justify="space-between">
+            <Heading size="md">AI Code Review</Heading>
+            <Text fontWeight="bold" color="blue.600">
+              {handledCount} / {totalSuggestions} suggestions handled
             </Text>
-            
-            <FormControl>
-              <FormLabel fontSize="sm" color="gray.700">Branch Name</FormLabel>
-              <Input 
+          </HStack>
+          <Progress value={progress} colorScheme="blue" borderRadius="full" size="sm" />
+        </VStack>
+      </Box>
+
+      {/* File Reviews */}
+      <VStack align="stretch" spacing={6}>
+        {reviewResults?.review?.map((fileReview, idx) => {
+          // Filter out handled suggestions
+          const activeSuggestions = (fileReview.results || []).filter(
+            s => !rejectedSuggestions.has(s)
+          );
+
+          if (activeSuggestions.length === 0) return null;
+
+          return (
+            <FileReview
+              key={idx}
+              file={fileReview.file}
+              originalContent={fileReview.original_content}
+              suggestions={activeSuggestions}
+              onApprove={(s) => handleApprove(s, fileReview)}
+              onReject={handleReject}
+            />
+          );
+        })}
+      </VStack>
+
+      {/* Final Actions */}
+      {handledCount === totalSuggestions && totalSuggestions > 0 && (
+        <Box mt={6} p={6} bg="green.50" borderRadius="md" boxShadow="md" textAlign="center">
+          <VStack spacing={4}>
+            <Heading size="md" color="green.800">All suggestions reviewed!</Heading>
+            <Text color="gray.700">
+              You have approved {approvedChanges.length} changes. Ready to create PR?
+            </Text>
+
+            <FormControl maxW="400px" mx="auto">
+              <FormLabel>Branch Name</FormLabel>
+              <Input
                 value={branchName}
                 onChange={(e) => setBranchName(e.target.value)}
-                placeholder="ai-review-branch"
-                size="sm"
                 bg="white"
               />
             </FormControl>
-            
-            <HStack justify="center" spacing={3}>
+
+            <HStack justify="center" spacing={4}>
               <Button variant="outline" onClick={onCancel}>
                 Cancel
               </Button>
-              <Button colorScheme="green" onClick={handleFinalize}>
-                Create PR with {approvedChanges.length} changes
+              <Button colorScheme="green" size="lg" onClick={handleFinalize}>
+                Create PR
               </Button>
             </HStack>
           </VStack>
@@ -156,5 +148,9 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
     </Box>
   );
 }
+
+// Import FileReview at the top (I will add the import in a separate block or assume it's added)
+// Wait, I need to add the import.
+
 
 export default InteractiveReview;

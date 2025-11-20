@@ -199,6 +199,7 @@ async def start_review(
                 review_results["review"].append(
                     {
                         "file": file_path,
+                        "original_content": content,
                         "results": file_reviews,
                     }
                 )
