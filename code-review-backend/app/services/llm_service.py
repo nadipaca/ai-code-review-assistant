@@ -98,6 +98,18 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
         code_snippet = code_snippet.strip("\n")
         issue_section = issue_section.strip()
         fix_section = fix_section.strip()
+        
+        # Strip line numbers from code_snippet if present (format: "  12: code")
+        # The LLM sometimes includes them despite being told not to
+        # IMPORTANT: Only strip the line number, preserve indentation AFTER the colon
+        code_snippet_lines = code_snippet.splitlines()
+        cleaned_code_lines = []
+        for line in code_snippet_lines:
+            # Match pattern like "  12: " at start of line, but keep everything after the colon
+            # The pattern captures leading whitespace + digits + colon + space, then keeps the rest
+            cleaned_line = re.sub(r'^\s*\d+:\s?', '', line, count=1)
+            cleaned_code_lines.append(cleaned_line)
+        code_snippet = "\n".join(cleaned_code_lines)
 
         # --- Severity -------------------------------------------------------
         severity = "MEDIUM"
@@ -152,6 +164,15 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
         if code_blocks:
             # Use the last code block as the replacement snippet
             fixed_code = code_blocks[-1].strip("\n")
+            
+            # Strip line numbers from fixed_code if present
+            fixed_code_lines = fixed_code.splitlines()
+            cleaned_fixed_lines = []
+            for line in fixed_code_lines:
+                # Match pattern like "  12: " at start of line, but keep everything after the colon
+                cleaned_line = re.sub(r'^\s*\d+:\s?', '', line, count=1)
+                cleaned_fixed_lines.append(cleaned_line)
+            fixed_code = "\n".join(cleaned_fixed_lines)
         else:
             # STRICT: If no code block is found, assume it's just an explanation.
             # We do NOT want to treat plain text as code for diffs.
@@ -165,6 +186,7 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
         logging.info(f"DEBUG: Issue {len(issues)+1}")
         logging.info(f"DEBUG: fixed_code='{fixed_code}'")
         logging.info(f"DEBUG: looks_english={looks_english}, contains_quote_backtick={contains_quote_backtick}")
+        logging.info(f"DEBUG: About to generate diff with fixed_code length={len(fixed_code)}")
 
         # If it looks like English sentence OR starts with "Use ", "Ensure ", etc.
         if (looks_english and contains_quote_backtick) or fixed_code.lower().startswith(("use ", "ensure ", "avoid ", "implement ")):
@@ -185,6 +207,34 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
                     code_snippet_for_diff = "\n".join(orig_lines[start_idx:end_idx])
             
             logging.info(f"DEBUG: code_snippet_for_diff='{code_snippet_for_diff}'")
+            
+            # CRITICAL: Preserve indentation from original code
+            # The LLM often doesn't preserve indentation, so we need to copy it from code_snippet_for_diff
+            if code_snippet_for_diff and fixed_code:
+                # Get the indentation from the first line of the ACTUAL original code
+                code_lines = code_snippet_for_diff.splitlines()
+                if code_lines:
+                    first_line = code_lines[0]
+                    # Extract leading whitespace
+                    indent_match = re.match(r'^(\s*)', first_line)
+                    if indent_match:
+                        indent = indent_match.group(1)
+                        if indent:  # Only apply if there's actual indentation
+                            logging.info(f"DEBUG: Detected indent from file='{indent}' (length={len(indent)})")
+                            logging.info(f"DEBUG: Before indentation - fixed_code='{fixed_code[:50]}'")
+                            # Apply this indentation to all lines of fixed_code
+                            fixed_lines = fixed_code.splitlines()
+                            indented_fixed_lines = []
+                            for i, line in enumerate(fixed_lines):
+                                if i == 0:
+                                    # First line gets the original indent
+                                    indented_fixed_lines.append(indent + line.lstrip())
+                                else:
+                                    # Subsequent lines: preserve their relative indentation
+                                    # but add the base indent
+                                    indented_fixed_lines.append(indent + line)
+                            fixed_code = "\n".join(indented_fixed_lines)
+                            logging.info(f"DEBUG: After indentation - fixed_code='{fixed_code[:50]}'")
 
             diff = ""
             if code_snippet_for_diff and fixed_code:
@@ -289,12 +339,13 @@ async def review_code_chunk_with_context(
         "Fix:\n"
         f"```{language}\n"
         "<PASTE HERE ONLY the fixed version of the same snippet, as valid code. NO English sentences, "
-        "NO comments about why. Just code.\n"
+        "NO comments about why. Just code. CRITICAL: Preserve the EXACT same indentation (leading spaces/tabs) as the original code.\n"
         "```\n"
         "<short explanation of the fix>\n\n"
         "Rules:\n"
         "- The `Code:` block must be a direct copy of existing code lines from the numbered block above.\n"
         "- The `Fix` section MUST start with a code block containing the valid " + language + " replacement code.\n"
+        "- **CRITICAL**: The fixed code MUST have the SAME indentation (leading whitespace) as the original code. This is essential for languages like Python.\n"
         "- Do NOT put explanations or comments inside the `````` blocks.\n"
         "- Always include both a `Severity:` line and a `Line(s):` line under the Issue section.\n"
         "- Reuse the exact line numbers from the numbered code block (these map directly to the original file).\n"
