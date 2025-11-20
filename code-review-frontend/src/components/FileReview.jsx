@@ -175,37 +175,39 @@ export function FileReview({ file, originalContent, suggestions, onApprove, onRe
 
                         return (
                             <React.Fragment key={lineNumber}>
-                                {/* Original Line */}
-                                <Flex
-                                    _hover={{ bg: 'gray.50' }}
-                                    borderBottom="1px solid"
-                                    borderColor="gray.100"
-                                >
-                                    <Box
-                                        w="50px"
-                                        textAlign="right"
-                                        pr={3}
-                                        color="gray.400"
-                                        fontSize="xs"
-                                        userSelect="none"
-                                        bg="gray.50"
-                                        py={1}
+                                {/* Only show original line if there's NO suggestion for it */}
+                                {!lineSuggestions && (
+                                    <Flex
+                                        _hover={{ bg: 'gray.50' }}
+                                        borderBottom="1px solid"
+                                        borderColor="gray.100"
                                     >
-                                        {lineNumber}
-                                    </Box>
-                                    <Code
-                                        flex="1"
-                                        bg="transparent"
-                                        fontSize="xs"
-                                        px={4}
-                                        py={1}
-                                        whiteSpace="pre"
-                                    >
-                                        {lineContent}
-                                    </Code>
-                                </Flex>
+                                        <Box
+                                            w="50px"
+                                            textAlign="right"
+                                            pr={3}
+                                            color="gray.400"
+                                            fontSize="xs"
+                                            userSelect="none"
+                                            bg="gray.50"
+                                            py={1}
+                                        >
+                                            {lineNumber}
+                                        </Box>
+                                        <Code
+                                            flex="1"
+                                            bg="transparent"
+                                            fontSize="xs"
+                                            px={4}
+                                            py={1}
+                                            whiteSpace="pre"
+                                        >
+                                            {lineContent}
+                                        </Code>
+                                    </Flex>
+                                )}
 
-                                {/* Suggestions for this line */}
+                                {/* Suggestions for this line - this will show the diff which includes the original line */}
                                 {lineSuggestions && (
                                     <Box px={4} py={2} bg="blue.50" borderBottom="1px solid" borderColor="blue.100">
                                         {lineSuggestions.map((suggestion, sIdx) => (
