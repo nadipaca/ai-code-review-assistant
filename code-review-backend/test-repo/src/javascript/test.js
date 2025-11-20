@@ -25,7 +25,11 @@ async function deleteUser(id) {
 
 
 function calculateExpression(userInput) {
-    return eval(userInput);
+Issue:
+Severity: HIGH
+Line(s): 28
+Description: Using `eval()` to execute user input can lead to code injection vulnerabilities.
+Fix:
 }
 
 function processPayment(amount, cardNumber) {
