@@ -83,9 +83,10 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
 
     # More robust regex that tolerates extra text between sections and optional "Code:" prefix
     # The lookahead checks for the START of the next issue (Code block followed closely by "Issue:")
+    # We need to ensure the Fix section captures up to and including the closing ```
     pattern = re.compile(
         r"(?:Code:\s*)?```[a-zA-Z0-9_+\-]*\n(.*?)```"
-        r"[\s\S]*?Issue:\s*(.*?)\n+Fix:\s*(.*?)(?=\n+(?:Code:\s*)?```[a-zA-Z0-9_+\-]*\n.*?```\s*Issue:|$)",
+        r"[\s\S]*?Issue:\s*(.*?)\n+Fix:\s*(.*?)(?=\n+Code:|$)",
         re.DOTALL | re.IGNORECASE,
     )
 
@@ -115,26 +116,35 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
 
         # --- Fallback: fuzzy match snippet back to original -----------------
         if not highlighted_lines and code_snippet:
-            snippet_lines = code_snippet.splitlines()
-            best_score = 0.0
-            best_start: Optional[int] = None
-
-            for start in range(0, max(0, len(orig_lines) - len(snippet_lines) + 1)):
-                candidate = "\n".join(orig_lines[start : start + len(snippet_lines)])
-                score = difflib.SequenceMatcher(
-                    None, candidate.strip(), code_snippet.strip()
-                ).ratio()
-                if score > best_score:
-                    best_score = score
-                    best_start = start
-
-            # Require reasonably high similarity
-            if best_start is not None and best_score >= 0.8:
-                highlighted_lines = list(
-                    range(best_start + 1, best_start + 1 + len(snippet_lines))
+            # If snippet NOT found literally at all, don't try to match
+            if code_snippet not in original_code:
+                logging.warning(
+                    "Code snippet not found verbatim in original file for %s; "
+                    "will only rely on explicit line numbers.",
+                    file_path,
                 )
+            else:
+                snippet_lines = code_snippet.splitlines()
+                best_score = 0.0
+                best_start: Optional[int] = None
+
+                for start in range(0, max(0, len(orig_lines) - len(snippet_lines) + 1)):
+                    candidate = "\n".join(orig_lines[start : start + len(snippet_lines)])
+                    score = difflib.SequenceMatcher(
+                        None, candidate.strip(), code_snippet.strip()
+                    ).ratio()
+                    if score > best_score:
+                        best_score = score
+                        best_start = start
+
+                # Require reasonably high similarity
+                if best_start is not None and best_score >= 0.8:
+                    highlighted_lines = list(
+                        range(best_start + 1, best_start + 1 + len(snippet_lines))
+                    )
 
         # --- Extract the actual fixed code from Fix section -----------------
+        logging.info(f"DEBUG: fix_section='{fix_section}'")
         fixed_code = ""
         code_blocks = re.findall(
             r"```[a-zA-Z0-9_+\-]*\n(.*?)```", fix_section, re.DOTALL
@@ -143,22 +153,55 @@ def parse_individual_issues(llm_response: str, original_code: str, file_path: st
             # Use the last code block as the replacement snippet
             fixed_code = code_blocks[-1].strip("\n")
         else:
-            fixed_code = fix_section
+            # STRICT: If no code block is found, assume it's just an explanation.
+            # We do NOT want to treat plain text as code for diffs.
+            fixed_code = ""
 
         # --- Generate diff --------------------------------------------------
-        diff = ""
-        if code_snippet and fixed_code:
-            diff_lines = list(
-                difflib.unified_diff(
-                    code_snippet.splitlines(),
-                    fixed_code.splitlines(),
-                    fromfile=f"a/{file_path}",
-                    tofile=f"b/{file_path}",
-                    lineterm="",
-                    n=3,
+        # Heuristic: if fixed_code looks like English explanation, skip diff
+        looks_english = bool(re.search(r"[A-Za-z]{4,}\s+[A-Za-z]{4,}\s+[A-Za-z]{4,}", fixed_code))
+        contains_quote_backtick = "`" in fixed_code
+        
+        logging.info(f"DEBUG: Issue {len(issues)+1}")
+        logging.info(f"DEBUG: fixed_code='{fixed_code}'")
+        logging.info(f"DEBUG: looks_english={looks_english}, contains_quote_backtick={contains_quote_backtick}")
+
+        # If it looks like English sentence OR starts with "Use ", "Ensure ", etc.
+        if (looks_english and contains_quote_backtick) or fixed_code.lower().startswith(("use ", "ensure ", "avoid ", "implement ")):
+            logging.info("DEBUG: Skipping diff - looks like English")
+            diff = ""
+        else:
+            # Build code_snippet_for_diff from original lines and highlighted_lines if available
+            # This ensures we diff against the REAL file content, not just what the LLM echoed
+            code_snippet_for_diff = code_snippet
+            if highlighted_lines:
+                start_idx = min(highlighted_lines) - 1
+                end_idx = max(highlighted_lines)
+                # Ensure indices are within bounds
+                start_idx = max(0, start_idx)
+                end_idx = min(len(orig_lines), end_idx)
+                
+                if start_idx < end_idx:
+                    code_snippet_for_diff = "\n".join(orig_lines[start_idx:end_idx])
+            
+            logging.info(f"DEBUG: code_snippet_for_diff='{code_snippet_for_diff}'")
+
+            diff = ""
+            if code_snippet_for_diff and fixed_code:
+                diff_lines = list(
+                    difflib.unified_diff(
+                        code_snippet_for_diff.splitlines(),
+                        fixed_code.splitlines(),
+                        fromfile=f"a/{file_path}",
+                        tofile=f"b/{file_path}",
+                        lineterm="",
+                        n=3,
+                    )
                 )
-            )
-            diff = "\n".join(diff_lines)
+                diff = "\n".join(diff_lines)
+                logging.info(f"DEBUG: Generated diff length={len(diff)}")
+            else:
+                logging.info("DEBUG: Skipping diff - missing snippet or fixed code")
 
         issues.append(
             {
@@ -233,21 +276,26 @@ async def review_code_chunk_with_context(
         "Your job is to:\n"
         "- Find only MEDIUM or HIGH severity issues (ignore LOW severity / nitpicks).\n"
         "- Propose **small, targeted line edits**, NOT full rewrites of the whole snippet.\n\n"
-        "For each issue you find, STRICTLY use this format:\n\n"
+        "For each issue you find, STRICTLY use this format (repeat this block for each issue):\n\n"
         "Code:\n"
         f"```{language}\n"
-        "<the smallest relevant code snippet copied exactly from the original code (WITHOUT the line number prefixes)>\n"
+        "<PASTE HERE ONLY the smallest relevant code snippet EXACTLY as it appears in the original code, "
+        "WITHOUT the line number prefixes and WITHOUT adding explanations or comments>\n"
         "```\n"
         "Issue:\n"
         "Severity: <HIGH | MEDIUM>\n"
         "Line(s): <comma-separated line numbers from the numbered code above>\n"
         "Description: <clear, simple explanation of the issue>\n\n"
         "Fix:\n"
-        "<short explanation of the fix>\n"
         f"```{language}\n"
-        "<fixed version of the same snippet>\n"
-        "```\n\n"
+        "<PASTE HERE ONLY the fixed version of the same snippet, as valid code. NO English sentences, "
+        "NO comments about why. Just code.\n"
+        "```\n"
+        "<short explanation of the fix>\n\n"
         "Rules:\n"
+        "- The `Code:` block must be a direct copy of existing code lines from the numbered block above.\n"
+        "- The `Fix` section MUST start with a code block containing the valid " + language + " replacement code.\n"
+        "- Do NOT put explanations or comments inside the `````` blocks.\n"
         "- Always include both a `Severity:` line and a `Line(s):` line under the Issue section.\n"
         "- Reuse the exact line numbers from the numbered code block (these map directly to the original file).\n"
         "- Prefer changing only the problematic lines instead of rewriting large sections.\n"
