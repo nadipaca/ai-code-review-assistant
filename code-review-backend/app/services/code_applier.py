@@ -59,6 +59,222 @@ class CodeApplier:
         return ranges
     
     @staticmethod
+    def detect_code_block_range(
+        original_code: str,
+        fix_code: str,
+        suggested_start: int,
+        suggested_end: int,
+        file_path: str = "file"
+    ) -> Tuple[int, int]:
+        """
+        Intelligently detect the actual line range needed for applying a fix.
+        
+        If the fix code contains a complete function/class/block definition,
+        this will search the original code to find the full range of that block.
+        
+        Args:
+            original_code: The original file content
+            fix_code: The suggested fix code block
+            suggested_start: Line number from AI suggestion (where issue was detected)
+            suggested_end: End line from AI suggestion
+            file_path: File path for language detection
+            
+        Returns:
+            (actual_start, actual_end) tuple with expanded range if block detected,
+            or original (suggested_start, suggested_end) if no expansion needed
+        """
+        lines = original_code.split('\n')
+        fix_lines = fix_code.strip().split('\n')
+        
+        if not fix_lines:
+            return (suggested_start, suggested_end)
+        
+        # Detect language from file extension
+        ext = file_path.lower().split('.')[-1] if '.' in file_path else ''
+        
+        # Check if fix code starts with a function/class/method definition
+        first_line = fix_lines[0].strip()
+        
+        # Language-specific patterns for function/class definitions
+        is_function_def = False
+        function_name = None
+        
+        # JavaScript/TypeScript patterns
+        if ext in ['js', 'jsx', 'ts', 'tsx', 'mjs']:
+            # function foo(), async function foo(), const foo = function()
+            js_patterns = [
+                r'^(?:export\s+)?(?:async\s+)?function\s+(\w+)',
+                r'^(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function',
+                r'^(?:const|let|var)\s+(\w+)\s*=\s*\([^)]*\)\s*=>'
+            ]
+            for pattern in js_patterns:
+                match = re.match(pattern, first_line)
+                if match:
+                    is_function_def = True
+                    function_name = match.group(1)
+                    break
+        
+        # Python patterns
+        elif ext in ['py']:
+            # def foo(), async def foo(), class Foo
+            py_patterns = [
+                r'^(?:async\s+)?def\s+(\w+)',
+                r'^class\s+(\w+)'
+            ]
+            for pattern in py_patterns:
+                match = re.match(pattern, first_line)
+                if match:
+                    is_function_def = True
+                    function_name = match.group(1)
+                    break
+        
+        # Java/C#/C++ patterns
+        elif ext in ['java', 'cs', 'cpp', 'c', 'h']:
+            # public void foo(), private static int bar()
+            java_pattern = r'(?:public|private|protected)\s+(?:static\s+)?(?:\w+\s+)+(\w+)\s*\('
+            match = re.match(java_pattern, first_line)
+            if match:
+                is_function_def = True
+                function_name = match.group(1)
+        
+        # If we didn't detect a function definition, return original range
+        if not is_function_def:
+            logging.info(f"No function/class definition detected in fix code, using original range {suggested_start}-{suggested_end}")
+            return (suggested_start, suggested_end)
+        
+        logging.info(f"Detected function/class definition: {function_name}")
+        
+        # Now search for the complete block in the original code
+        # IMPORTANT: The suggested range might be INSIDE the function body,
+        # so we need to search BACKWARDS to find the function definition
+        search_start = max(0, suggested_start - 20)  # Increased to 20 lines before
+        search_end = min(len(lines), suggested_end + 10)
+        
+        # Find the function definition line by searching for the function name
+        actual_start = None
+        
+        # Strategy 1: Search for exact function definition (including before suggested range)
+        for i in range(search_start, search_end):
+            if i >= len(lines):
+                break
+            line = lines[i].strip()
+            
+            # Check if this line contains the function definition
+            if function_name and function_name in line:
+                # Verify it's actually a definition, not just a call
+                if ext in ['js', 'jsx', 'ts', 'tsx', 'mjs']:
+                    if re.search(r'\bfunction\s+' + re.escape(function_name) + r'\b', lines[i]) or \
+                       re.search(r'\b' + re.escape(function_name) + r'\s*[=:]\s*(?:async\s+)?(?:function|\()', lines[i]):
+                        actual_start = i + 1  # Convert to 1-indexed
+                        logging.info(f"Found function definition at line {actual_start}")
+                        break
+                elif ext in ['py']:
+                    if re.search(r'\b(?:def|class)\s+' + re.escape(function_name) + r'\b', lines[i]):
+                        actual_start = i + 1
+                        logging.info(f"Found function definition at line {actual_start}")
+                        break
+                elif ext in ['java', 'cs', 'cpp', 'c', 'h']:
+                    if re.search(r'\b' + re.escape(function_name) + r'\s*\(', lines[i]):
+                        actual_start = i + 1
+                        logging.info(f"Found function definition at line {actual_start}")
+                        break
+        
+        # Strategy 2: If we couldn't find by name, search backwards for ANY function/class definition
+        # that would contain the suggested lines
+        if actual_start is None:
+            logging.info(f"Function {function_name} not found by name, searching for containing function...")
+            
+            for i in range(suggested_start - 1, max(0, suggested_start - 30), -1):
+                if i < 0 or i >= len(lines):
+                    continue
+                line = lines[i].strip()
+                
+                # Look for function/class definitions
+                if ext in ['js', 'jsx', 'ts', 'tsx', 'mjs']:
+                    if re.search(r'\b(?:async\s+)?function\s+\w+\s*\(', line) or \
+                       re.search(r'\b(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?function', line) or \
+                       re.search(r'\b(?:const|let|var)\s+\w+\s*=\s*\([^)]*\)\s*=>', line):
+                        actual_start = i + 1
+                        logging.info(f"Found containing function at line {actual_start}")
+                        break
+                elif ext in ['py']:
+                    if re.search(r'\b(?:def|class)\s+\w+', line):
+                        actual_start = i + 1
+                        logging.info(f"Found containing function at line {actual_start}")
+                        break
+        
+        if actual_start is None:
+            logging.warning(f"Could not find function definition for {function_name}, using suggested range")
+            return (suggested_start, suggested_end)
+        
+        # Find the closing of the block
+        actual_end = None
+        
+        if ext in ['js', 'jsx', 'ts', 'tsx', 'mjs', 'java', 'cs', 'cpp', 'c', 'h']:
+            # Brace-based languages: count opening and closing braces
+            brace_count = 0
+            started = False
+            
+            for i in range(actual_start - 1, min(len(lines), actual_start + 200)):
+                line = lines[i]
+                
+                # Count braces
+                for char in line:
+                    if char == '{':
+                        brace_count += 1
+                        started = True
+                    elif char == '}':
+                        brace_count -= 1
+                        
+                        # When we reach 0 after starting, we've found the end
+                        if started and brace_count == 0:
+                            actual_end = i + 1  # Convert to 1-indexed
+                            break
+                
+                if actual_end is not None:
+                    break
+        
+        elif ext in ['py']:
+            # Python: detect based on indentation
+            # Find the indentation level of the function def
+            def_line = lines[actual_start - 1]
+            def_indent = len(def_line) - len(def_line.lstrip())
+            
+            # Find where indentation returns to the same or less level
+            last_function_line = actual_start  # Start with first line as fallback
+            for i in range(actual_start, min(len(lines), actual_start + 200)):
+                line = lines[i]
+                
+                # Skip empty lines
+                if not line.strip():
+                    continue
+                
+                # Check indentation
+                current_indent = len(line) - len(line.lstrip())
+                
+                # If we're back to the same or less indentation, the block ended on the previous non-empty line
+                if current_indent <= def_indent:
+                    actual_end = last_function_line  # Last line that was part of the function
+                    break
+                else:
+                    # This line is still part of the function
+                    last_function_line = i + 1  # Convert to 1-indexed
+            
+            # If we didn't find the end (e.g., function goes to end of file)
+            if actual_end is None:
+                actual_end = last_function_line
+        
+        if actual_end is None:
+            logging.warning(f"Could not find end of block for {function_name}, using suggested range")
+            return (suggested_start, suggested_end)
+        
+        # Log the expansion
+        if actual_start != suggested_start or actual_end != suggested_end:
+            logging.info(f"📏 Expanded line range from {suggested_start}-{suggested_end} to {actual_start}-{actual_end} (detected complete {function_name})")
+        
+        return (actual_start, actual_end)
+    
+    @staticmethod
     def smart_extract_changes(suggestion: str) -> List[Dict]:
         """
         Extract ALL changes from a multi-part suggestion.
@@ -191,11 +407,20 @@ class CodeApplier:
                         cleaned_lines.append(re.sub(r'^\s*\d+:\s?', '', line, count=1))
                     code = "\n".join(cleaned_lines)
                     
-                    code = "\n".join(cleaned_lines)
+                    # INTELLIGENT RANGE DETECTION
+                    # Detect if the fix code contains a complete function/class/block
+                    # and expand the line range accordingly
+                    detected_start, detected_end = CodeApplier.detect_code_block_range(
+                        original_code=original_code,
+                        fix_code=code,
+                        suggested_start=line_start,
+                        suggested_end=line_end or line_start,
+                        file_path=file_path
+                    )
                     
                     # Construct changes list to reuse existing logic
                     changes = [{
-                        "lines": (line_start, line_end or line_start),
+                        "lines": (detected_start, detected_end),
                         "code": code,
                         "description": "Applied fix from suggestion",
                         "language": lang

@@ -321,22 +321,36 @@ function App() {
   }
 
   async function handleCreatePRWithChanges(approvedChanges, branchName) {
-    if (!selectedRepo || approvedChanges.length === 0) return;
+    console.log('🔍 DEBUG: handleCreatePRWithChanges called');
+    console.log('  - approvedChanges.length:', approvedChanges.length);
+    console.log('  - approvedChanges:', JSON.stringify(approvedChanges, null, 2));
+    console.log('  - branchName:', branchName);
+
+    if (!selectedRepo || approvedChanges.length === 0) {
+      console.warn('⚠️  Cannot create PR: no repo or no changes');
+      return;
+    }
 
     setPublishing(true);
 
     try {
+      const payload = {
+        owner: selectedRepo.owner.login,
+        repo: selectedRepo.name,
+        branch_name: branchName || `ai-review-${Date.now()}`,
+        approved_changes: approvedChanges
+      };
+
+      console.log('📤 Sending payload:', JSON.stringify(payload, null, 2));
+
       const response = await fetch('/api/reviews/create-pr-with-changes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          owner: selectedRepo.owner.login,
-          repo: selectedRepo.name,
-          branch_name: branchName || `ai-review-${Date.now()}`,
-          approved_changes: approvedChanges
-        })
+        body: JSON.stringify(payload)
       });
+
+      console.log('📥 Response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -420,7 +434,7 @@ function App() {
                 </VStack>
               )}
 
-              {view === 'review' && (
+              {view === 'review' && !showInteractiveReview && (
                 <ReviewPanel
                   selectedRepo={selectedRepo}
                   setSelectedRepo={(r) => { setSelectedRepo(r); if (!r) setView('repos'); }}

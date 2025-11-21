@@ -128,8 +128,13 @@ class PRCreator:
         """
         Create a PR with actual code changes based on approved suggestions.
         """
+        logging.info(f"🔧 PRCreator.create_review_pr_with_changes called")
+        logging.info(f"  - approved_changes: {approved_changes}")
+        logging.info(f"  - approved_changes length: {len(approved_changes) if approved_changes else 0}")
+        
         try:
             if not approved_changes or len(approved_changes) == 0:
+                logging.error("❌ No approved changes to commit!")
                 raise ValueError("No approved changes to commit")
             
             if not base_branch:

@@ -295,6 +295,12 @@ async def create_pr_with_changes(
     access_token: Optional[str] = Cookie(None),
 ):
     """Create a PR with actual code changes from approved suggestions"""
+    logging.info(f"🔍 create_pr_with_changes called")
+    logging.info(f"  - request.owner: {request.owner}")
+    logging.info(f"  - request.repo: {request.repo}")
+    logging.info(f"  - request.branch_name: {request.branch_name}")
+    logging.info(f"  - request.approved_changes length: {len(request.approved_changes) if request.approved_changes else 0}")
+    
     if not access_token:
         raise HTTPException(status_code=401, detail="Missing access token")
 
@@ -319,6 +325,10 @@ async def create_pr_with_changes(
             }
             for change in request.approved_changes
         ]
+        
+        logging.info(f"📊 Processed {len(approved_changes)} approved changes")
+        for idx, change in enumerate(approved_changes):
+            logging.info(f"  Change {idx+1}: file={change['file']}, has_content={bool(change['modified_content'])}")
 
         pr_data = await creator.create_review_pr_with_changes(
             owner=request.owner,
@@ -378,10 +388,21 @@ async def apply_suggestion(
             if fixed_lines:
                 fixed_code = '\n'.join(fixed_lines)
                 
-                # Apply the fix
+                # INTELLIGENT RANGE DETECTION
+                # Check if the fixed code represents a complete function/class block
+                # and expand the line range accordingly
+                detected_start, detected_end = CodeApplier.detect_code_block_range(
+                    original_code=base_content,
+                    fix_code=fixed_code,
+                    suggested_start=request.line_start,
+                    suggested_end=request.line_end or request.line_start,
+                    file_path=request.file_ref.path
+                )
+                
+                # Apply the fix using the detected range
                 base_lines = base_content.split('\n')
-                start_idx = max(0, request.line_start - 1)
-                end_idx = min(len(base_lines), request.line_end or request.line_start)
+                start_idx = max(0, detected_start - 1)
+                end_idx = min(len(base_lines), detected_end)
                 
                 # Replace the lines
                 new_lines = base_lines[:start_idx] + fixed_lines + base_lines[end_idx:]
@@ -401,9 +422,9 @@ async def apply_suggestion(
                     "diff": diff,
                     "applied": True,
                     "changes": [{
-                        "lines": [request.line_start, request.line_end or request.line_start],
+                        "lines": [detected_start, detected_end],
                         "code": fixed_code,
-                        "description": "Applied fix from diff",
+                        "description": "Applied fix from diff with intelligent range detection",
                         "language": "javascript"
                     }],
                     "error": None,

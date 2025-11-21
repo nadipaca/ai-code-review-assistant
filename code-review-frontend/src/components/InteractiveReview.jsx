@@ -56,18 +56,27 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
       }));
 
       // Store approved change
-      setApprovedChanges([...approvedChanges, {
+      const approvedChange = {
         file: fileRef.file,
-        original_content: fileRef.original_content,
+        original_content: currentContent, // Use current content (state before this fix), not initial
         modified_content: result.modified_code,
         suggestion: suggestion.comment || "Code improvement",
         diff: result.diff || suggestion.diff || "",
         line_start: suggestion.highlighted_lines?.[0],
         line_end: suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1]
-      }]);
+      };
 
-      // Hide the approved suggestion
-      setRejectedSuggestions(new Set([...rejectedSuggestions, suggestion]));
+      console.log('✅ Approved change:', {
+        file: approvedChange.file,
+        has_original: !!approvedChange.original_content,
+        has_modified: !!approvedChange.modified_content,
+        has_diff: !!approvedChange.diff
+      });
+
+      setApprovedChanges([...approvedChanges, approvedChange]);
+
+      // Note: We don't add to rejectedSuggestions here because approvedChanges is tracked separately
+      // and we filter based on both in the render logic below
     } catch (error) {
       console.error('Failed to apply suggestion:', error);
       alert('Failed to apply suggestion: ' + (error.message || 'Unknown error'));
@@ -85,10 +94,25 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
   };
 
   const handleFinalize = () => {
+    console.log('🚀 handleFinalize called, approvedChanges.length:', approvedChanges.length);
+
     if (approvedChanges.length === 0) {
-      alert('No changes approved');
+      alert('No changes approved. Please approve at least one suggestion before creating a PR.');
       return;
     }
+
+    // Validate that all approved changes have required fields
+    const invalidChanges = approvedChanges.filter(
+      change => !change.file || !change.modified_content
+    );
+
+    if (invalidChanges.length > 0) {
+      console.error('❌ Invalid changes detected:', invalidChanges);
+      alert(`Error: ${invalidChanges.length} approved change(s) are missing required data. Please try approving again.`);
+      return;
+    }
+
+    console.log('✅ Validation passed, calling onComplete with', approvedChanges.length, 'changes');
     onComplete(approvedChanges, branchName);
   };
 
@@ -110,9 +134,19 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
       {/* File Reviews */}
       <VStack align="stretch" spacing={6}>
         {reviewResults?.review?.map((fileReview, idx) => {
-          // Filter out handled suggestions
+          // Filter out handled suggestions (both rejected and approved)
           const activeSuggestions = (fileReview.results || []).filter(
-            s => !rejectedSuggestions.has(s)
+            s => {
+              // Check if rejected
+              if (rejectedSuggestions.has(s)) return false;
+
+              // Check if approved (by checking if any approved change matches this suggestion)
+              const isApproved = approvedChanges.some(
+                change => change.file === fileReview.file &&
+                  change.line_start === s.highlighted_lines?.[0]
+              );
+              return !isApproved;
+            }
           );
 
           if (activeSuggestions.length === 0) return null;
