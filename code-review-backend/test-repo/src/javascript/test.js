@@ -1,5 +1,5 @@
 function displayUserMessage(message) {
-    document.getElementById('message').innerHTML = message;
+    document.getElementById('message').textContent = message;
 }
 
 function fetchUserData(userId) {
@@ -11,7 +11,7 @@ function fetchUserData(userId) {
 }
 
 function getUserToken() {
-    const apiKey = 'sk-1234567890abcdef';
+    const apiKey = process.env.API_KEY;
     return apiKey;
 }
 
@@ -25,22 +25,35 @@ async function deleteUser(id) {
 
 
 function calculateExpression(userInput) {
-    return eval(userInput);
+    // Remove this function - it's inherently unsafe.
+    // If you need math evaluation, use a library like 'expr-eval':
+    // const Parser = require('expr-eval').Parser;
+    // const parser = new Parser();
+    // return parser.evaluate(userInput);
+    throw new Error('This function has been removed for security reasons. Use a safe expression parser.');
 }
 
-function processPayment(amount, cardNumber) {
-    const charge = stripe.charges.create({
-        amount: amount,
-        currency: 'usd',
-        source: cardNumber
-    });
-    
-    return charge;
-}
+    async function processPayment(amount, cardNumber) {
+        const response = await fetch('/api/process-payment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ amount, cardNumber })
+        });
+        return response.json();
+    }
 
 let globalCache = {};
 
-function cacheUserData(userId, data) {
+    const CACHE_TTL = 3600000; // 1 hour
+    globalCache[userId] = { data, timestamp: Date.now() };
+    // Cleanup old entries
+    Object.keys(globalCache).forEach(key => {
+        if (Date.now() - globalCache[key].timestamp > CACHE_TTL) {
+            delete globalCache[key];
+        }
+    });
     globalCache[userId] = data;
     // Never cleaned up
 }
