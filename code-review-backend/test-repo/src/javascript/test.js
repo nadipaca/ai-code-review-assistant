@@ -25,7 +25,12 @@ async function deleteUser(id) {
 
 
 function calculateExpression(userInput) {
-    return eval(userInput);
+    // Remove this function - it's inherently unsafe.
+    // If you need math evaluation, use a library like 'expr-eval':
+    // const Parser = require('expr-eval').Parser;
+    // const parser = new Parser();
+    // return parser.evaluate(userInput);
+    throw new Error('This function has been removed for security reasons. Use a safe expression parser.');
 }
 
 function processPayment(amount, cardNumber) {
