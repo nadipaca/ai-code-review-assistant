@@ -1,5 +1,5 @@
 function displayUserMessage(message) {
-    document.getElementById('message').innerHTML = message;
+    document.getElementById('message').textContent = message;
 }
 
 function fetchUserData(userId) {
