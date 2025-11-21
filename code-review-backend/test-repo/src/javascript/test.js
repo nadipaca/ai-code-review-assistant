@@ -41,7 +41,14 @@ function calculateExpression(userInput) {
 
 let globalCache = {};
 
-function cacheUserData(userId, data) {
+    const CACHE_TTL = 3600000; // 1 hour
+    globalCache[userId] = { data, timestamp: Date.now() };
+    // Cleanup old entries
+    Object.keys(globalCache).forEach(key => {
+        if (Date.now() - globalCache[key].timestamp > CACHE_TTL) {
+            delete globalCache[key];
+        }
+    });
     globalCache[userId] = data;
     // Never cleaned up
 }
