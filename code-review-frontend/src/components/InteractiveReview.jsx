@@ -9,6 +9,16 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
   const [branchName, setBranchName] = useState(`ai-review-${Date.now()}`);
   const [loadingDiff, setLoadingDiff] = useState(new Set());
 
+  // Track cumulative file content for each file
+  const [fileContents, setFileContents] = useState(() => {
+    // Initialize with original content for each file
+    const initialContents = {};
+    reviewResults?.review?.forEach(fileReview => {
+      initialContents[fileReview.file] = fileReview.original_content;
+    });
+    return initialContents;
+  });
+
   // Calculate total suggestions for progress tracking
   const totalSuggestions = React.useMemo(() => {
     if (!reviewResults?.review) return 0;
@@ -18,41 +28,45 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
   const handledCount = approvedChanges.length + rejectedSuggestions.size;
   const progress = totalSuggestions === 0 ? 100 : (handledCount / totalSuggestions) * 100;
 
-  // Enhanced approve handler
+  // Enhanced approve handler with cumulative state
   const handleApprove = async (suggestion, fileRef) => {
-    // Generate a unique ID for the suggestion to track loading state
     const suggestionId = `${fileRef.file}-${suggestion.highlighted_lines?.[0]}`;
     setLoadingDiff(new Set([...loadingDiff, suggestionId]));
 
     try {
-      // Apply the suggestion to get the final modified content
-      // We use the backend to ensure the patch applies cleanly
+      // Get current file content (with all previous approved fixes)
+      const currentContent = fileContents[fileRef.file];
+
+      // Apply the suggestion using the pre-computed diff and current content
       const result = await applySuggestion(
         owner,
         repo,
         fileRef.file,
-        suggestion.suggestion || suggestion.comment,
+        suggestion.comment,
         suggestion.highlighted_lines?.[0] || 1,
-        suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1]
+        suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1],
+        suggestion.diff, // Pass the pre-computed diff
+        currentContent   // Pass current content for cumulative changes
       );
 
+      // Update the file content with the newly modified version
+      setFileContents(prev => ({
+        ...prev,
+        [fileRef.file]: result.modified_code
+      }));
+
+      // Store approved change
       setApprovedChanges([...approvedChanges, {
         file: fileRef.file,
-        original_content: result.original_content || "",
-        modified_content: result.modified_code || "",
-        suggestion: suggestion.suggestion || suggestion.comment || "Code improvement",
+        original_content: fileRef.original_content,
+        modified_content: result.modified_code,
+        suggestion: suggestion.comment || "Code improvement",
         diff: result.diff || suggestion.diff || "",
         line_start: suggestion.highlighted_lines?.[0],
         line_end: suggestion.highlighted_lines?.[suggestion.highlighted_lines.length - 1]
       }]);
 
-      // Mark as handled (using the suggestion object reference or ID)
-      // Since we don't have IDs, we'll use the suggestion object itself in a Set? 
-      // Or just add to rejectedSuggestions (which is used for hiding)?
-      // Actually, for "Approved", we usually hide it too, or show it as "Approved".
-      // Let's add to rejectedSuggestions to hide it from the active list, 
-      // but we might want to show a "Approved" state in the UI.
-      // For now, let's just hide it to clear the list.
+      // Hide the approved suggestion
       setRejectedSuggestions(new Set([...rejectedSuggestions, suggestion]));
     } catch (error) {
       console.error('Failed to apply suggestion:', error);
@@ -107,7 +121,7 @@ export function InteractiveReview({ reviewResults, onComplete, onCancel, owner, 
             <FileReview
               key={idx}
               file={fileReview.file}
-              originalContent={fileReview.original_content}
+              originalContent={fileContents[fileReview.file]} // Use cumulative content
               suggestions={activeSuggestions}
               onApprove={(s) => handleApprove(s, fileReview)}
               onReject={handleReject}

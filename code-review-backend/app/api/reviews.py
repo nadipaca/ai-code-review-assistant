@@ -355,16 +355,63 @@ async def apply_suggestion(
     client = GitHubClient(github_token)
 
     try:
-        # Fetch original file content
-        original_content = await client.get_file_content(
-            request.file_ref.owner,
-            request.file_ref.repo,
-            request.file_ref.path,
-        )
+        # Determine base content: use current_content if provided (for cumulative changes),
+        # otherwise fetch from GitHub
+        if request.current_content:
+            base_content = request.current_content
+        else:
+            base_content = await client.get_file_content(
+                request.file_ref.owner,
+                request.file_ref.repo,
+                request.file_ref.path,
+            )
 
-        # Apply suggestion
+        # Strategy 1: Use pre-computed diff if available (most reliable)
+        if request.diff:
+            # Extract fixed lines from diff (lines starting with +)
+            fixed_lines = []
+            for line in request.diff.split('\n'):
+                if line.startswith('+') and not line.startswith('+++'):
+                    # Remove the '+' prefix
+                    fixed_lines.append(line[1:])
+            
+            if fixed_lines:
+                fixed_code = '\n'.join(fixed_lines)
+                
+                # Apply the fix
+                base_lines = base_content.split('\n')
+                start_idx = max(0, request.line_start - 1)
+                end_idx = min(len(base_lines), request.line_end or request.line_start)
+                
+                # Replace the lines
+                new_lines = base_lines[:start_idx] + fixed_lines + base_lines[end_idx:]
+                modified_code = '\n'.join(new_lines)
+                
+                # Generate new diff
+                diff = CodeApplier.generate_diff(
+                    base_content,
+                    modified_code,
+                    request.file_ref.path,
+                    context_lines=5
+                )
+                
+                return {
+                    "original_content": base_content,
+                    "modified_code": modified_code,
+                    "diff": diff,
+                    "applied": True,
+                    "changes": [{
+                        "lines": [request.line_start, request.line_end or request.line_start],
+                        "code": fixed_code,
+                        "description": "Applied fix from diff",
+                        "language": "javascript"
+                    }],
+                    "error": None,
+                }
+
+        # Strategy 2: Fallback to CodeApplier (legacy behavior)
         result = CodeApplier.smart_apply_suggestion(
-            original_code=original_content,
+            original_code=base_content,
             suggestion=request.suggestion,
             line_start=request.line_start,
             line_end=request.line_end,
@@ -373,7 +420,7 @@ async def apply_suggestion(
 
         # Enhanced response with original content and diff
         return {
-            "original_content": original_content,
+            "original_content": base_content,
             "modified_code": result["modified_code"],
             "diff": result["diff"],
             "applied": result["applied"],

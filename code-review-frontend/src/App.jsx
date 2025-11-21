@@ -40,157 +40,157 @@ import ReviewPanel from "./components/ReviewPanel";
 import InteractiveReview from './components/InteractiveReview';
 
 function App() {
-    const [repos, setRepos] = useState([]);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [repos, setRepos] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-    const [selectedRepo, setSelectedRepo] = useState(null);
-    const [selectedFiles, setSelectedFiles] = useState([]);
-    const [breadcrumbs, setBreadcrumbs] = useState([]);
-    const [reviewResults, setReviewResults] = useState(null);
-    const [reviewLoading, setReviewLoading] = useState(false);
-    const [prNumber, setPrNumber] = useState("");
-    const [publishing, setPublishing] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [reviewResults, setReviewResults] = useState(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [prNumber, setPrNumber] = useState("");
+  const [publishing, setPublishing] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
   // view controls which single panel is visible: 'repos' | 'review'
   const [view, setView] = useState('repos');
   const [showInteractiveReview, setShowInteractiveReview] = useState(false);
-    const toast = useToast();
+  const toast = useToast();
 
-    async function handleLogout() {
-      try {
-        await fetch('/api/auth/github/logout', { method: 'POST', credentials: 'include' });
-      } catch (e) {
-        console.error('Logout request failed', e);
-      }
-      // Clear client state
-      setIsAuthenticated(false);
-      setRepos([]);
-      setSelectedRepo(null);
-      setSelectedFiles([]);
-      setReviewResults(null);
-      setView('repos');
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/github/logout', { method: 'POST', credentials: 'include' });
+    } catch (e) {
+      console.error('Logout request failed', e);
     }
-
-    useEffect(() => {
-      // Check session/profile then load repos
-      (async () => {
-        try {
-          const res = await fetch("/api/profile", { credentials: "include" });
-          if (!res.ok) return setIsAuthenticated(false);
-          await res.json();
-          setIsAuthenticated(true);
-          // load repos inline to avoid stale-deps warning
-          setLoadingRepos(true);
-          try {
-            const data = await getRepos();
-            // backend returns { repos: [...] } — normalize to an array
-            setRepos(Array.isArray(data) ? data : (data && data.repos) ? data.repos : []);
-          } catch (err) {
-            if (err && err.status === 401) setIsAuthenticated(false);
-            else console.error("Failed to load repos", err);
-          } finally {
-            setLoadingRepos(false);
-          }
-        } catch {
-          setIsAuthenticated(false);
-        }
-      })();
-    }, []);
-
-    useEffect(() => {
-      if (!isAuthenticated) {
-        const isLoginPage = window.location.pathname === '/' || window.location.pathname === '/login';
-        if (!isLoginPage) {
-          window.location.href = '/';
-        }
-      }
-    }, [isAuthenticated]);
-
-    function handleRepoSelect(repo) {
-      setSelectedRepo(repo);
-      setBreadcrumbs([]);
-      setSelectedFiles([]);
-      setReviewResults(null);
-      // navigate to review panel
-      setView('review');
-    }
-
-    function handleSelectFile(file) {
-      // toggle selection
-      setSelectedFiles((prev) => {
-        const exists = prev.find((f) => f.path === file.path);
-        if (exists) return prev.filter((f) => f.path !== file.path);
-        return [...prev, file];
-      });
-    }
-
-   async function handleReview() {
-  if (!selectedRepo || selectedFiles.length === 0) return;
-  setReviewLoading(true);
-  try {
-    const payload = selectedFiles.map((f) => ({ 
-      owner: selectedRepo.owner.login, 
-      repo: selectedRepo.name, 
-      path: f.path 
-    }));
-    
-    const res = await startReview(payload);
-    setReviewResults(res);
-    
-    // ✅ Check if any issues were found
-    if (!res.review || res.review.length === 0) {
-      toast({ 
-        title: "✅ No Issues Found", 
-        description: "All selected files passed review with no medium/high severity issues!",
-        status: "success", 
-        duration: 5000, 
-        isClosable: true 
-      });
-      setShowInteractiveReview(false);
-      return;
-    }
-    
-    // Route to /review page
-    window.history.pushState({}, '', '/review');
-
-    setShowInteractiveReview(true);
-    
-    toast({ 
-      title: `${res.review.length} file(s) need attention`, 
-      description: "Review suggestions one by one",
-      status: "info", 
-      duration: 3000, 
-      isClosable: true 
-    });
-  } catch (err) {
-    toast({ 
-      title: "Review failed", 
-      description: err.message || String(err), 
-      status: "error", 
-      duration: 4000, 
-      isClosable: true 
-    });
-  } finally {
-    setReviewLoading(false);
+    // Clear client state
+    setIsAuthenticated(false);
+    setRepos([]);
+    setSelectedRepo(null);
+    setSelectedFiles([]);
+    setReviewResults(null);
+    setView('repos');
   }
-}
 
-  
+  useEffect(() => {
+    // Check session/profile then load repos
+    (async () => {
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) return setIsAuthenticated(false);
+        await res.json();
+        setIsAuthenticated(true);
+        // load repos inline to avoid stale-deps warning
+        setLoadingRepos(true);
+        try {
+          const data = await getRepos();
+          // backend returns { repos: [...] } — normalize to an array
+          setRepos(Array.isArray(data) ? data : (data && data.repos) ? data.repos : []);
+        } catch (err) {
+          if (err && err.status === 401) setIsAuthenticated(false);
+          else console.error("Failed to load repos", err);
+        } finally {
+          setLoadingRepos(false);
+        }
+      } catch {
+        setIsAuthenticated(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      const isLoginPage = window.location.pathname === '/' || window.location.pathname === '/login';
+      if (!isLoginPage) {
+        window.location.href = '/';
+      }
+    }
+  }, [isAuthenticated]);
+
+  function handleRepoSelect(repo) {
+    setSelectedRepo(repo);
+    setBreadcrumbs([]);
+    setSelectedFiles([]);
+    setReviewResults(null);
+    // navigate to review panel
+    setView('review');
+  }
+
+  function handleSelectFile(file) {
+    // toggle selection
+    setSelectedFiles((prev) => {
+      const exists = prev.find((f) => f.path === file.path);
+      if (exists) return prev.filter((f) => f.path !== file.path);
+      return [...prev, file];
+    });
+  }
+
+  async function handleReview() {
+    if (!selectedRepo || selectedFiles.length === 0) return;
+    setReviewLoading(true);
+    try {
+      const payload = selectedFiles.map((f) => ({
+        owner: selectedRepo.owner.login,
+        repo: selectedRepo.name,
+        path: f.path
+      }));
+
+      const res = await startReview(payload);
+      setReviewResults(res);
+
+      // ✅ Check if any issues were found
+      if (!res.review || res.review.length === 0) {
+        toast({
+          title: "✅ No Issues Found",
+          description: "All selected files passed review with no medium/high severity issues!",
+          status: "success",
+          duration: 5000,
+          isClosable: true
+        });
+        setShowInteractiveReview(false);
+        return;
+      }
+
+      // Route to /review page
+      window.history.pushState({}, '', '/review');
+
+      setShowInteractiveReview(true);
+
+      toast({
+        title: `${res.review.length} file(s) need attention`,
+        description: "Review suggestions one by one",
+        status: "info",
+        duration: 3000,
+        isClosable: true
+      });
+    } catch (err) {
+      toast({
+        title: "Review failed",
+        description: err.message || String(err),
+        status: "error",
+        duration: 4000,
+        isClosable: true
+      });
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+
   async function handlePublishToPR() {
-  if (!selectedRepo || !prNumber || !reviewResults) return;
-  setPublishing(true);
-  try {
-    // Transform reviewResults -> suggestions with line numbers
-    const suggestions = (reviewResults && Array.isArray(reviewResults.review))
-      ? reviewResults.review.map((fileObj) => {
+    if (!selectedRepo || !prNumber || !reviewResults) return;
+    setPublishing(true);
+    try {
+      // Transform reviewResults -> suggestions with line numbers
+      const suggestions = (reviewResults && Array.isArray(reviewResults.review))
+        ? reviewResults.review.map((fileObj) => {
           if (fileObj.error) {
             return { file: fileObj.file, comment: `Error: ${fileObj.error}` };
           }
-          
+
           // Aggregate all highlighted lines from all chunks
           const allLines = [];
           const parts = [];
-          
+
           // ✅ FIX: Changed from fileObj.suggestions to fileObj.results
           (fileObj.results || []).forEach((r, idx) => {
             if (r.error) {
@@ -209,9 +209,9 @@ function App() {
               allLines.push(...r.highlighted_lines);
             }
           });
-          
+
           const comment = parts.join("\n\n") || "_No suggestion provided._";
-          
+
           // Return suggestion with line info for inline commenting
           return {
             file: fileObj.file,
@@ -219,54 +219,54 @@ function App() {
             highlighted_lines: allLines.length > 0 ? allLines : null
           };
         })
-      : [];
-  
+        : [];
+
       if (suggestions.length === 0) {
-        toast({ 
-          title: "Nothing to publish", 
-          description: "No review suggestions available.", 
-          status: "warning", 
-          duration: 3000, 
-          isClosable: true 
+        toast({
+          title: "Nothing to publish",
+          description: "No review suggestions available.",
+          status: "warning",
+          duration: 3000,
+          isClosable: true
         });
         setPublishing(false);
         return;
       }
-  
+
       const prNum = Number(prNumber);
-  
+
       await publishReviewToPR(selectedRepo.owner.login, selectedRepo.name, prNum, suggestions);
-      toast({ 
-        title: "Published to PR", 
+      toast({
+        title: "Published to PR",
         description: "Review posted with inline comments where possible",
-        status: "success", 
-        duration: 3000, 
-        isClosable: true 
+        status: "success",
+        duration: 3000,
+        isClosable: true
       });
-      
+
       setView('repos');
       setSelectedRepo(null);
       setSelectedFiles([]);
       setReviewResults(null);
     } catch (err) {
-      toast({ 
-        title: "Publish failed", 
-        description: err.message || JSON.stringify(err), 
-        status: "error", 
-        duration: 4000, 
-        isClosable: true 
+      toast({
+        title: "Publish failed",
+        description: err.message || JSON.stringify(err),
+        status: "error",
+        duration: 4000,
+        isClosable: true
       });
     } finally {
       setPublishing(false);
     }
   }
-  
+
   async function handleCreateReviewPR() {
     if (!selectedRepo || !reviewResults) return;
     setPublishing(true);
-    
+
     try {
-      const response = await fetch('/api/reviews/create-pr', {
+      const response = await fetch('/api/reviews/create-review-pr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -277,12 +277,12 @@ function App() {
           review_results: reviewResults
         })
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Failed to create PR');
       }
-      
+
       const data = await response.json();
       toast({
         title: 'PR Created Successfully! 🎉',
@@ -290,7 +290,7 @@ function App() {
           <>
             <Text>Draft PR #{data.pr.number} created</Text>
             <Text fontSize="xs" mt={1}>
-              <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{color: 'teal'}}>
+              <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{ color: 'teal' }}>
                 View on GitHub →
               </a>
             </Text>
@@ -300,7 +300,7 @@ function App() {
         duration: 8000,
         isClosable: true
       });
-      
+
       // Reset state
       setView('repos');
       setSelectedRepo(null);
@@ -320,84 +320,84 @@ function App() {
     }
   }
 
-async function handleCreatePRWithChanges(approvedChanges, branchName) {
-  if (!selectedRepo || approvedChanges.length === 0) return;
-  
-  setPublishing(true);
-  
-  try {
-    const response = await fetch('/api/reviews/create-pr-with-changes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        owner: selectedRepo.owner.login,
-        repo: selectedRepo.name,
-        branch_name: branchName || `ai-review-${Date.now()}`,
-        approved_changes: approvedChanges
-      })
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to create PR');
+  async function handleCreatePRWithChanges(approvedChanges, branchName) {
+    if (!selectedRepo || approvedChanges.length === 0) return;
+
+    setPublishing(true);
+
+    try {
+      const response = await fetch('/api/reviews/create-pr-with-changes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          owner: selectedRepo.owner.login,
+          repo: selectedRepo.name,
+          branch_name: branchName || `ai-review-${Date.now()}`,
+          approved_changes: approvedChanges
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to create PR');
+      }
+
+      const data = await response.json();
+      toast({
+        title: 'PR Created Successfully! 🎉',
+        description: (
+          <>
+            <Text>PR #{data.pr.number} created with approved changes</Text>
+            <Text fontSize="xs" mt={1}>
+              <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{ color: 'teal' }}>
+                View on GitHub →
+              </a>
+            </Text>
+          </>
+        ),
+        status: 'success',
+        duration: 8000,
+        isClosable: true
+      });
+
+      // Reset state
+      setShowInteractiveReview(false);
+      setReviewResults(null);
+      setView('repos');
+      setSelectedRepo(null);
+      setSelectedFiles([]);
+    } catch (err) {
+      console.error('Create PR error:', err);
+      toast({
+        title: 'Failed to create PR',
+        description: err.message || 'An unknown error occurred',
+        status: 'error',
+        duration: 6000,
+        isClosable: true
+      });
+    } finally {
+      setPublishing(false);
     }
-    
-    const data = await response.json();
-    toast({
-      title: 'PR Created Successfully! 🎉',
-      description: (
-        <>
-          <Text>PR #{data.pr.number} created with approved changes</Text>
-          <Text fontSize="xs" mt={1}>
-            <a href={data.pr.html_url} target="_blank" rel="noopener noreferrer" style={{color: 'teal'}}>
-              View on GitHub →
-            </a>
-          </Text>
-        </>
-      ),
-      status: 'success',
-      duration: 8000,
-      isClosable: true
-    });
-    
-    // Reset state
-    setShowInteractiveReview(false);
-    setReviewResults(null);
-    setView('repos');
-    setSelectedRepo(null);
-    setSelectedFiles([]);
-  } catch (err) {
-    console.error('Create PR error:', err);
-    toast({
-      title: 'Failed to create PR',
-      description: err.message || 'An unknown error occurred',
-      status: 'error',
-      duration: 6000,
-      isClosable: true
-    });
-  } finally {
-    setPublishing(false);
   }
-}
 
 
-  
-    function sanitizeFilename(name) {
-      return name.replace(/[^a-z0-9._-]/gi, "_");
-    }
 
-    if (!isAuthenticated) {
-      return (
-        <ChakraProvider>
-          <LoginScreen />
-        </ChakraProvider>
-      );
-    }
+  function sanitizeFilename(name) {
+    return name.replace(/[^a-z0-9._-]/gi, "_");
+  }
 
+  if (!isAuthenticated) {
     return (
       <ChakraProvider>
-        <ErrorBoundary>
+        <LoginScreen />
+      </ChakraProvider>
+    );
+  }
+
+  return (
+    <ChakraProvider>
+      <ErrorBoundary>
         <Box minH="100vh" bgGradient="linear(to-br, teal.900 0%, gray.900 100%)" color="gray.100">
           <Header onLogout={() => { handleLogout(); }} />
 
@@ -443,23 +443,23 @@ async function handleCreatePRWithChanges(approvedChanges, branchName) {
               )}
 
               {showInteractiveReview && reviewResults && (
-        <InteractiveReview
-          reviewResults={reviewResults}
-          onComplete={handleCreatePRWithChanges}
-          onCancel={() => {
-            setShowInteractiveReview(false);
-            setReviewResults(null);
-          }}
-          owner={selectedRepo.owner.login}
-          repo={selectedRepo.name}
-        />
-      )}
+                <InteractiveReview
+                  reviewResults={reviewResults}
+                  onComplete={handleCreatePRWithChanges}
+                  onCancel={() => {
+                    setShowInteractiveReview(false);
+                    setReviewResults(null);
+                  }}
+                  owner={selectedRepo.owner.login}
+                  repo={selectedRepo.name}
+                />
+              )}
             </Box>
           </Box>
         </Box>
-        </ErrorBoundary>
-      </ChakraProvider>
-    );
-  }
+      </ErrorBoundary>
+    </ChakraProvider>
+  );
+}
 
-  export default App;
+export default App;

@@ -175,14 +175,42 @@ class CodeApplier:
             }
         """
         try:
-            # Extract all changes from suggestion
+            # STRATEGY 1: Look for explicit "Fix:" section (Standard format)
+            # This is the most reliable way to get the intended change
+            fix_match = re.search(r"Fix:\s*\n(.*?)$", suggestion, re.DOTALL | re.IGNORECASE)
+            if fix_match:
+                fix_content = fix_match.group(1)
+                code_blocks = CodeApplier.extract_code_blocks(fix_content)
+                if code_blocks:
+                    # Use the first code block found in the Fix section
+                    lang, code = code_blocks[0]
+                    
+                    # Strip line numbers if present (just in case)
+                    cleaned_lines = []
+                    for line in code.splitlines():
+                        cleaned_lines.append(re.sub(r'^\s*\d+:\s?', '', line, count=1))
+                    code = "\n".join(cleaned_lines)
+                    
+                    code = "\n".join(cleaned_lines)
+                    
+                    # Construct changes list to reuse existing logic
+                    changes = [{
+                        "lines": (line_start, line_end or line_start),
+                        "code": code,
+                        "description": "Applied fix from suggestion",
+                        "language": lang
+                    }]
+
+            # STRATEGY 2: Extract all changes (Multi-part suggestions)
             changes = CodeApplier.smart_extract_changes(suggestion)
             
             if not changes:
-                # Fallback: try simple extraction
+                # STRATEGY 3: Fallback to simple extraction (take the LAST code block)
+                # The last block is usually the fix (Code: ... Fix: ...)
                 code_blocks = CodeApplier.extract_code_blocks(suggestion)
                 if code_blocks:
-                    lang, code = code_blocks[0]
+                    # Use the LAST code block, as the first one might be the "Code:" block (original)
+                    lang, code = code_blocks[-1]
                     changes = [{
                         "lines": (line_start, line_end or line_start),
                         "code": code,

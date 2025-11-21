@@ -41,3 +41,5 @@ class ApplySuggestionRequest(BaseModel):
     suggestion: str
     line_start: int
     line_end: Optional[int] = None
+    diff: Optional[str] = None  # Pre-computed diff from review
+    current_content: Optional[str] = None  # Current file content (with previous fixes applied)

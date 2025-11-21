@@ -55,7 +55,7 @@ export async function publishReviewToPR(owner, repo, pullNumber, suggestions) {
   return res.json();
 }
 
-export async function applySuggestion(owner, repo, path, suggestion, lineStart, lineEnd = null) {
+export async function applySuggestion(owner, repo, path, suggestion, lineStart, lineEnd = null, diff = null, currentContent = null) {
   const res = await fetch("http://localhost:8000/api/reviews/apply-suggestion", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -64,7 +64,9 @@ export async function applySuggestion(owner, repo, path, suggestion, lineStart, 
       file_ref: { owner, repo, path },
       suggestion,
       line_start: lineStart,
-      line_end: lineEnd
+      line_end: lineEnd,
+      diff: diff,
+      current_content: currentContent
     })
   });
   if (!res.ok) {
