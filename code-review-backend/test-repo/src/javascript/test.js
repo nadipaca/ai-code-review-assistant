@@ -41,7 +41,14 @@ function calculateExpression(userInput) {
             },
             body: JSON.stringify({ amount, cardNumber })
         });
-        return response.json();
+    const CACHE_TTL = 3600000; // 1 hour
+    globalCache[userId] = { data, timestamp: Date.now() };
+    // Cleanup old entries
+    Object.keys(globalCache).forEach(key => {
+        if (Date.now() - globalCache[key].timestamp > CACHE_TTL) {
+            delete globalCache[key];
+        }
+    });
     }
 
 let globalCache = {};
