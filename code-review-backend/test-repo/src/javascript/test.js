@@ -33,15 +33,16 @@ function calculateExpression(userInput) {
     throw new Error('This function has been removed for security reasons. Use a safe expression parser.');
 }
 
-function processPayment(amount, cardNumber) {
-    const charge = stripe.charges.create({
-        amount: amount,
-        currency: 'usd',
-        source: cardNumber
-    });
-    
-    return charge;
-}
+    async function processPayment(amount, cardNumber) {
+        const response = await fetch('/api/process-payment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ amount, cardNumber })
+        });
+        return response.json();
+    }
 
 let globalCache = {};
 
